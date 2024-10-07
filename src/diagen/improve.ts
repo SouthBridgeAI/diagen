@@ -1,5 +1,5 @@
 import ora from "ora";
-import { SupportedModel, Message } from "../types";
+import { SupportedModel, Message, CritiqueHistoryItem } from "../types";
 import { callAIStream } from "../utils/ai-adapters";
 import { cleanDiagramWithTip20 } from "../utils/helpers";
 
@@ -12,38 +12,57 @@ export async function improveDiagramWithCritique(
   tempDir: string,
   saveLogStep?: (step: any) => void,
   inputData?: string,
-  critiqueHistory?: {
-    diagramCode: string;
-    critique: string;
-    improvedDiagram: string;
-  }[]
+  critiqueHistory?: CritiqueHistoryItem[]
 ) {
   // prettier-ignore
-  const reflectionPrompt = (diagramCode: string, typeofDiagram: string, inputData?: string) =>
-`${inputData ? `DATA: \n\`\`\`${inputData}\`\`\`\n` : ""}DIAGRAM: \n\n\`\`\`d2\n${diagramCode}\n\`\`\`\nAreas to improve:\n\`\`\`\n${critique}\n\`\`\`
-Provided is a d2 ${typeofDiagram} diagram${inputData ? " generated from DATA" : ""}. Apply the critiques when possible to improve the diagram but don't make it too complex. Explain very shortly how you will improve, then generate and return the improved d2 diagram code.`;
+  const reflectionPrompt = (typeofDiagram: string, critique: string, diagramCode?: string,inputData?: string) =>
+`${inputData ? `DATA: \n\`\`\`${inputData}\`\`\`\n` : ""}${diagramCode? `DIAGRAM: \n\n\`\`\`d2\n${diagramCode}\n\`\`\`\n`: ""}Areas to improve:\n\`\`\`\n${critique}\n\`\`\`
+${diagramCode ? `Provided is a d2 ${typeofDiagram} diagram` : 'Here are more suggestions.'}${inputData ? " generated from DATA" : ""}. Apply the critiques when possible to improve the diagram but don't make it too complex. Explain very shortly how you will improve, then generate and return the improved d2 diagram code.`;
 
-  const messages = (
-    critiqueHistory
-      ? critiqueHistory
-          .map((critique) => [
-            {
-              role: "user",
-              content: reflectionPrompt(critique.diagramCode, typeofDiagram),
-            },
-            {
-              role: "assistant",
-              content: `Improved diagram:\n\`\`\`d2\n${critique.improvedDiagram}\n\`\`\``,
-            },
-          ])
-          .flat()
-      : []
-  ) as Message[];
+  console.log("Critique history: ", critiqueHistory);
 
-  messages.push({
-    role: "user",
-    content: reflectionPrompt(diagramCode, typeofDiagram, inputData),
+  const messages: Message[] = [];
+
+  critiqueHistory?.forEach((hCritique, index) => {
+    if (index === 0) {
+      messages.push({
+        role: "user",
+        content: reflectionPrompt(
+          typeofDiagram,
+          hCritique.critique,
+          hCritique.diagramCode,
+          inputData
+        ),
+      });
+    } else {
+      messages.push({
+        role: "user",
+        content: reflectionPrompt(typeofDiagram, hCritique.critique),
+      });
+    }
+
+    messages.push({
+      role: "assistant",
+      content: hCritique.fullResponse,
+    });
   });
+
+  if (critiqueHistory?.length === 0) {
+    messages.push({
+      role: "user",
+      content: reflectionPrompt(
+        typeofDiagram,
+        critique,
+        diagramCode,
+        inputData
+      ),
+    });
+  } else {
+    messages.push({
+      role: "user",
+      content: reflectionPrompt(typeofDiagram, critique),
+    });
+  }
 
   const critiqueSpinner = ora("Improving diagram with critique").start();
 
@@ -92,6 +111,7 @@ Provided is a d2 ${typeofDiagram} diagram${inputData ? " generated from DATA" : 
     critique: {
       diagramCode,
       critique,
+      fullResponse: response,
       improvedDiagram: cleanedDiagram,
     },
   };

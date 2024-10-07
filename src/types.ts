@@ -17,3 +17,10 @@ export type Message = {
   role: "user" | "assistant";
   content: string;
 };
+
+export type CritiqueHistoryItem = {
+  diagramCode: string;
+  critique: string;
+  fullResponse: string;
+  improvedDiagram: string;
+};

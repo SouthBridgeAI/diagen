@@ -107,7 +107,7 @@ export async function checkAndFixDiagram(
     }
 
     // Add the current attempt
-    if (fixHistory.length > 0) {
+    if (fixHistory.length > 0 && provideFixHistory) {
       messages.push({
         role: "user",
         content: `The previous fix attempt resulted in the following errors:\n\`\`\`\n${
