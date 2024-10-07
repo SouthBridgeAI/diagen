@@ -1,7 +1,13 @@
 import { v4 as uuidv4 } from "uuid";
 import fs from "fs";
 import path from "path";
-import { CritiqueHistoryItem, FixAttempt, SupportedModel } from "./types";
+import {
+  ClaudeModel,
+  CritiqueHistoryItem,
+  FixAttempt,
+  GeminiModel,
+  SupportedModel,
+} from "./types";
 import { createTempDir, isClaudeModel, writeToFile } from "./utils/helpers";
 import { generateDiagram } from "./diagen/generate";
 import { checkAndFixDiagram } from "./diagen/fix";
@@ -40,7 +46,8 @@ export async function diagen(
   dataDesc: string,
   typeofDiagram: string,
   generationModel: SupportedModel,
-  critiqueModel: string,
+  fixModel: SupportedModel,
+  critiqueModel: ClaudeModel | GeminiModel,
   maxFixSteps: number = 4,
   maxCritiqueRounds: number = 2,
   provideFixHistory: boolean = false,
@@ -107,7 +114,7 @@ export async function diagen(
       });
 
       const diagramCheck = await checkAndFixDiagram(
-        generationModel,
+        fixModel,
         currentDiagramFilename,
         diagramId,
         maxFixSteps,
@@ -145,19 +152,12 @@ export async function diagen(
 
       if (critiqueRound === maxCritiqueRounds) break;
 
-      const critique = isClaudeModel(critiqueModel)
-        ? await visualReflectWithClaude(
-            renderResult.filename!,
-            critiqueModel,
-            "information flow",
-            provideDataForCritique ? data : undefined
-          )
-        : await visualReflect(
-            renderResult.filename!,
-            critiqueModel,
-            "information flow",
-            provideDataForCritique ? data : undefined
-          );
+      const critique = await visualReflect(
+        renderResult.filename!,
+        critiqueModel,
+        "information flow",
+        provideDataForCritique ? data : undefined
+      );
 
       run.rounds[critiqueRound].critique = critique;
 
@@ -225,11 +225,12 @@ export async function diagen(
     "Article about a project called Rakis",
     "Architecture, key components and flow",
     // "gpt-4o",
+    // "gemini-1.5-pro-002",
+    "gemini-1.5-flash-8b",
     "claude-3-5-sonnet-20240620",
     // "gpt-4o-mini",
-    // "gemini-1.5-flash-8b",
     // "gemini-1.5-flash",
-    "gemini-1.5-pro-exp-0827",
+    "claude-3-haiku-20240307",
     6,
     5,
     true,

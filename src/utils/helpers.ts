@@ -1,6 +1,11 @@
 import fs from "fs";
 import path from "path";
-import { ClaudeModel, OpenAIModel, SupportedModel } from "../types";
+import {
+  ClaudeModel,
+  GeminiModel,
+  OpenAIModel,
+  SupportedModel,
+} from "../types";
 import ora from "ora";
 import { tip20streaming } from "tip20";
 
@@ -47,6 +52,10 @@ export const isOpenAIModel = (model: SupportedModel): model is OpenAIModel => {
 
 export const isClaudeModel = (model: SupportedModel): model is ClaudeModel => {
   return typeof model === "string" && model.startsWith("claude-");
+};
+
+export const isGeminiModel = (model: SupportedModel): model is GeminiModel => {
+  return typeof model === "string" && model.startsWith("gemini-");
 };
 
 export async function cleanDiagramWithTip20(
