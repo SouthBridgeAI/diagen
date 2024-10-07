@@ -1,62 +1,82 @@
-import ora from "ora";
 import { SupportedModel, FixAttempt, Message } from "../types";
 import { callAIStream } from "../utils/ai-adapters";
-import { cleanDiagramWithTip20, writeToFile } from "../utils/helpers";
+import {
+  cleanDiagramWithTip20,
+  lineTag,
+  removeLineTag,
+  writeToFile,
+} from "../utils/helpers";
 import { render } from "./render";
 import fs from "fs";
+import path from "path";
+import ora from "ora";
 
-const fixPrompt = (errors: string, diagramCode?: string) => `${
-  diagramCode ? `DIAGRAM: \n\n\`\`\`d2\n${diagramCode}\n\`\`\`\n` : ""
-}
-Errors in diagram code:\n\`\`\`\n${errors}\n\`\`\`\n
+type FixResult =
+  | {
+      success: false;
+      error: string;
+      fixAttempts: number;
+    }
+  | {
+      success: true;
+      d2file: string;
+      outputImage: string;
+      diagramCode: string;
+      fixAttempts: number;
+    };
+
+const fixPrompt = (errors: string, diagramCode: string) =>
+  `DIAGRAM (with line numbers):
+\`\`\`d2
+${lineTag(diagramCode)}
+\`\`\`
+
+Errors in diagram code:
+\`\`\`
+${errors}
+\`\`\`
+
 Explain why the errors are happening. Then fix the errors in the d2 diagram code provided, and return the fixed code. Keep an eye out for recurring errors and try new fixes.`;
 
 export async function checkAndFixDiagram(
-  logSteps: any[],
   model: SupportedModel,
   diagramFilename: string,
   diagramId: string,
   fixRounds: number,
   tempDir: string,
   provideFixHistory: boolean = false,
-  saveLogStep?: (step: any) => void
-) {
+  saveFixAttempt: (fixAttempt: FixAttempt) => void
+): Promise<FixResult> {
   const fixHistory: FixAttempt[] = [];
+  const initialDiagramCode = fs.readFileSync(diagramFilename, "utf-8");
 
-  const diagramCode = fs.readFileSync(diagramFilename, "utf-8");
+  const checkSpinner = ora(`Checking diagram (${diagramId})`).start();
 
-  const spinner = ora(`Checking diagram (${diagramId})`).start();
-
-  let { err, filename } = await render(
+  const initialRenderResult = await render(
     diagramFilename,
-    diagramId + "_original",
-    saveLogStep
+    `${diagramId}_original`,
+    tempDir
   );
 
-  if (!err) {
-    spinner.succeed(`Diagram rendered successfully (${diagramId})`);
-
-    logSteps.push({
-      type: "successful_render",
-      attempt: diagramId,
-      d2file: filename,
-      outputImage: filename,
-    });
-
+  if (initialRenderResult.success && initialRenderResult.filename) {
+    checkSpinner.succeed(`Diagram rendered successfully (${diagramId})`);
     return {
+      success: true,
       d2file: diagramFilename,
-      outputImage: filename,
-      diagramCode: diagramCode,
+      outputImage: initialRenderResult.filename,
+      diagramCode: initialDiagramCode,
+      fixAttempts: 0,
     };
   }
 
-  spinner.fail(`Rendering failed (${diagramId}), trying to fix...`);
+  checkSpinner.fail(`Rendering failed (${diagramId}), trying to fix...`);
 
-  let latestDiagramFilename = diagramFilename,
-    latestDiagramCode = diagramCode;
+  let latestDiagramCode = initialDiagramCode;
+  let fixAttempts = 0;
 
   for (let i = 0; i < fixRounds; i++) {
-    const fixDiagramId = diagramId + "_fixed_" + i;
+    fixAttempts++;
+    const fixDiagramId = `${diagramId}_fixed_${i.toString().padStart(2, "0")}`;
 
     const fixSpinner = ora(
       `Fixing diagram (${diagramId}), try ${i + 1}`
@@ -64,25 +84,42 @@ export async function checkAndFixDiagram(
 
     let messages: Message[] = [];
 
-    if (fixHistory.length > 0 && provideFixHistory) {
-      fixHistory.forEach((attempt) => {
-        messages.push(
-          {
+    if (provideFixHistory) {
+      fixHistory.forEach((attempt, index) => {
+        if (index === 0) {
+          messages.push({
             role: "user",
-            content: fixPrompt(attempt.errors),
-          },
-          {
-            role: "assistant",
-            content: `Fixed diagram:\n\`\`\`d2\n${attempt.fixedDiagram}\n\`\`\``,
-          }
-        );
+            content: fixPrompt(attempt.errors, initialDiagramCode),
+          });
+        } else {
+          messages.push({
+            role: "user",
+            content: `The previous fix attempt resulted in the following errors:\n\`\`\`\n${attempt.errors}\n\`\`\`\nPlease fix these errors in the previously provided diagram.`,
+          });
+        }
+        messages.push({
+          role: "assistant",
+          content: `Here's the fixed diagram code:\n\`\`\`d2\n${lineTag(
+            attempt.fixedDiagram
+          )}\n\`\`\``,
+        });
       });
     }
 
-    messages.push({
-      role: "user",
-      content: fixPrompt(err!, latestDiagramCode),
-    });
+    // Add the current attempt
+    if (fixHistory.length > 0) {
+      messages.push({
+        role: "user",
+        content: `The previous fix attempt resulted in the following errors:\n\`\`\`\n${
+          fixHistory[fixHistory.length - 1].errors
+        }\n\`\`\`\nPlease fix these errors in the previously provided diagram.`,
+      });
+    } else {
+      messages.push({
+        role: "user",
+        content: fixPrompt(initialRenderResult.err!, latestDiagramCode),
+      });
+    }
 
     const stream = await callAIStream(
       model,
@@ -101,65 +138,54 @@ export async function checkAndFixDiagram(
       fixSpinner.text = `Fixing diagram errors (${tokenCount} tokens)`;
     }
 
-    if (saveLogStep)
-      saveLogStep({
-        type: "diagram_fixed",
-        diagram: response,
-        model: model,
-        fixAttemptsLeft: fixRounds - i,
-      });
-
     fixSpinner.succeed(`New diagram generated with fixes for (${diagramId})`);
+
+    response = removeLineTag(response);
 
     const cleanedDiagram = await cleanDiagramWithTip20(
       response,
       "claude-3-haiku-20240307"
     );
 
-    if (saveLogStep)
-      saveLogStep({
-        type: "diagram_fixed_cleaned",
-        diagram: cleanedDiagram,
-        model: "claude-3-haiku-20240307",
-      });
-
-    latestDiagramFilename = `${tempDir}/${fixDiagramId}.d2`;
     latestDiagramCode = cleanedDiagram;
-
+    const latestDiagramFilename = path.join(tempDir, `${fixDiagramId}.d2`);
     writeToFile(latestDiagramFilename, latestDiagramCode);
 
-    const spinner = ora(`Checking diagram (${fixDiagramId})`).start();
+    const renderSpinner = ora(`Checking diagram (${fixDiagramId})`).start();
 
-    const { err: err2, filename: filename2 } = await render(
+    const renderResult = await render(
       latestDiagramFilename,
       fixDiagramId,
-      saveLogStep
+      tempDir
     );
 
-    err = err2;
-
-    if (!err2) {
-      spinner.succeed(`Diagram rendered successfully (${fixDiagramId})`);
-
-      logSteps.push({
-        type: "successful_render",
-        attempt: fixDiagramId,
-        d2file: latestDiagramFilename,
-        outputImage: filename2,
-      });
-
+    if (renderResult.success && renderResult.filename) {
+      renderSpinner.succeed(`Diagram rendered successfully (${fixDiagramId})`);
       return {
+        success: true,
         d2file: latestDiagramFilename,
-        outputImage: filename2,
+        outputImage: renderResult.filename,
         diagramCode: latestDiagramCode,
+        fixAttempts,
       };
     }
 
-    spinner.fail(`Rendering failed for ${fixDiagramId})`);
+    renderSpinner.fail(`Rendering failed for ${fixDiagramId})`);
 
-    fixHistory.push({
-      errors: err2,
+    const fixAttempt: FixAttempt = {
+      diagramCode: latestDiagramCode,
+      errors: renderResult.err!,
       fixedDiagram: cleanedDiagram,
-    });
+      response: response,
+    };
+
+    fixHistory.push(fixAttempt);
+    saveFixAttempt(fixAttempt);
   }
+
+  return {
+    success: false,
+    error: `Failed to fix diagram after ${fixAttempts} attempts`,
+    fixAttempts,
+  };
 }

@@ -1,0 +1,53 @@
+{
+  "name": "ts-package-template",
+  "version": "0.0.1",
+  "author": "Hrishi Olickel <twitter-@hrishioa> (https://olickel.com)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/southbridgeai/ts-package-template.git"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "devDependencies": {
+    "@swc/core": "^1.7.26",
+    "@types/bun": "^1.1.10",
+    "@types/node": "^22.7.4",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.2"
+  },
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "description": "Simple template for typescript packages",
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "tsup && tsc --emitDeclarationOnly --declaration --declarationDir dist && mv dist/index.d.ts dist/index.d.mts && cp dist/index.d.mts dist/index.d.cts"
+  },
+  "type": "module",
+  "types": "./dist/index.d.cts",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.28.0",
+    "@google/generative-ai": "^0.21.0",
+    "@types/cli-progress": "^3.11.6",
+    "cli-progress": "^3.12.0",
+    "dotenv": "^16.4.5",
+    "openai": "^4.67.1",
+    "ora": "^8.1.0",
+    "sharp": "^0.33.5",
+    "tip20": "^0.0.5",
+    "uuid": "^10.0.0"
+  }
+}

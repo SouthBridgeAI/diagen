@@ -15,7 +15,7 @@ export async function resizeAndSaveImage(
   maxWidth: number,
   maxHeight: number
 ) {
-  console.log("Trying to resize image:", imagePath);
+  // console.log("Trying to resize image:", imagePath);
 
   // Load the image
   const image = sharp(imagePath);
@@ -25,7 +25,7 @@ export async function resizeAndSaveImage(
     throw new Error("Unable to get image dimensions");
   }
 
-  console.log("Original image dimensions:", metadata);
+  // console.log("Original image dimensions:", metadata);
 
   // Resize the image to fit within maxWidth and maxHeight while maintaining aspect ratio
   const resizedImage = image.resize({
@@ -37,7 +37,7 @@ export async function resizeAndSaveImage(
 
   // Get the metadata of the resized image
   const resizedMetadata = await resizedImage.metadata();
-  console.log("Resized image dimensions:", resizedMetadata);
+  // console.log("Resized image dimensions:", resizedMetadata);
 
   // Get image extension
   const imageExt = path.extname(imagePath);
@@ -46,7 +46,7 @@ export async function resizeAndSaveImage(
 
   await resizedImage.toFile(outputPath);
 
-  console.log(`Resized image saved to: ${outputPath}`);
+  // console.log(`Resized image saved to: ${outputPath}`);
 
   return outputPath;
 }

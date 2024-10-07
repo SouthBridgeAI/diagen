@@ -15,7 +15,7 @@ export async function generateDiagram(
   INSTRUCTION: Data is ${dataDesc}. Generate a landscape (left to right preferred) d2 diagram code (in d2 markdown blocks) for the DATA provided, covering ${typeofDiagram}. 1. Feel free to be creative
   2. Provide a single diagram only, with good visual design. 3. Make sure the code is for d2 and not mermaid.
   4. Keep it simple when possible.
-  5. Don't make legends.`;
+  5. Don't make legends and remove any that exist.`;
 
   let stream = await callAIStream(
     model,

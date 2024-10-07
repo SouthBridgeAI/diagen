@@ -7,8 +7,10 @@ import { Model as ClaudeModel } from "@anthropic-ai/sdk/resources";
 export type SupportedModel = OpenAIModel | ClaudeModel;
 
 export type FixAttempt = {
+  diagramCode: string;
   errors: string;
   fixedDiagram: string;
+  response: string;
 };
 
 export type Message = {

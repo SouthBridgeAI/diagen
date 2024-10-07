@@ -44,7 +44,7 @@ export const claudeAdapter = {
     const client = new Anthropic();
     const stream = await client.messages.create({
       temperature: 0.1,
-      max_tokens: 8192,
+      max_tokens: model.includes("3-5-sonnet") ? 8192 : 4096,
       model,
       system: systemPrompt,
       messages,

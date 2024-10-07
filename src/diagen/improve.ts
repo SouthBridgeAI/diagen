@@ -19,8 +19,9 @@ export async function improveDiagramWithCritique(
   }[]
 ) {
   // prettier-ignore
-  const reflectionPrompt = (diagramCode: string, typeofDiagram: string, inputData?: string) => `${inputData ? `DATA: \n\`\`\`${inputData}\`\`\`\n` : ""}DIAGRAM: \n\n\`\`\`d2\n${diagramCode}\n\`\`\`Areas to improve:\n\`\`\`\n${critique}\n\`\`\`
-  Provided is a d2 ${typeofDiagram} diagram${inputData ? " generated from DATA" : ""}. Apply the critiques when possible to improve the diagram but don't make it too complex. Explain very shortly how you will improve, then generate and return the improved d2 diagram code.`;
+  const reflectionPrompt = (diagramCode: string, typeofDiagram: string, inputData?: string) =>
+`${inputData ? `DATA: \n\`\`\`${inputData}\`\`\`\n` : ""}DIAGRAM: \n\n\`\`\`d2\n${diagramCode}\n\`\`\`\nAreas to improve:\n\`\`\`\n${critique}\n\`\`\`
+Provided is a d2 ${typeofDiagram} diagram${inputData ? " generated from DATA" : ""}. Apply the critiques when possible to improve the diagram but don't make it too complex. Explain very shortly how you will improve, then generate and return the improved d2 diagram code.`;
 
   const messages = (
     critiqueHistory

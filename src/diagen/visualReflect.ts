@@ -16,7 +16,7 @@ const critiquePrompt = (typeofDiagram: string, inputData?: string) =>
   (inputData ? `DATA: \n\`\`\`${inputData}\`\`\`\n` : "") +
   `Critique the provided ${typeofDiagram}${
     inputData ? " for the DATA" : ""
-  }, including style, positioning, etc. Provide just the actionable critiques (relevant to the diagram)and ways to improve, while covering what is useful to keep. Stay within what d2 can do. Stay away from vague criticisms, provide actionable changes, even suggest direct changes to the diagram. Dont' ask to add a legend.`;
+  }, including style, positioning, etc. Provide just the actionable critiques (relevant to the diagram) and ways to improve and simplify, while covering what is useful to keep. Stay within what d2 can do. Stay away from vague criticisms, provide actionable changes, even suggest direct changes to the diagram. Suggest removing things that make the diagram too cluttered. Dont' ask to add a legend.`;
 
 export async function visualReflect(
   diagramLocation: string,
