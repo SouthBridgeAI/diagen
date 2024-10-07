@@ -41,8 +41,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.28.0",
     "@google/generative-ai": "^0.21.0",
-    "@types/cli-progress": "^3.11.6",
-    "cli-progress": "^3.12.0",
     "dotenv": "^16.4.5",
     "openai": "^4.67.1",
     "ora": "^8.1.0",

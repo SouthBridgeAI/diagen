@@ -1,0 +1,1305 @@
+<src/diagen.ts>
+L5:   ClaudeModel,
+L6:   CritiqueHistoryItem,
+L7:   FixAttempt,
+L8:   GeminiModel,
+L9:   SupportedModel,
+L10: } from "./types";
+L17: 
+L18: interface DiagramRun {
+L19:   id: string;
+L20:   config: {
+L21:     generationModel: SupportedModel;
+L22:     critiqueModel: string;
+L23:     maxFixSteps: number;
+L24:     maxCritiqueRounds: number;
+L25:     provideFixHistory: boolean;
+L26:     provideCritiqueHistory: boolean;
+L27:     provideDataForCritique: boolean;
+L28:   };
+L29:   rounds: DiagramRound[];
+L30:   totalTime: number;
+L31: }
+L32: 
+L33: interface DiagramRound {
+L34:   critiqueNumber: number;
+L35:   initialDiagramCode: string;
+L36:   fixes: FixAttempt[];
+L37:   finalDiagramCode: string;
+L38:   renderedDiagramFilename: string;
+L39:   critique?: string;
+L40:   failureReason?: string;
+L41:   timeTaken: number;
+L42: }
+L43: 
+L44: export async function diagen(
+L45:   data: string,
+L46:   dataDesc: string,
+L47:   typeofDiagram: string,
+L48:   generationModel: SupportedModel,
+L49:   fixModel: SupportedModel,
+L50:   critiqueModel: ClaudeModel | GeminiModel,
+L51:   maxFixSteps: number = 4,
+L52:   maxCritiqueRounds: number = 2,
+L53:   provideFixHistory: boolean = false,
+L54:   provideCritiqueHistory: boolean = false,
+L55:   provideDataForCritique: boolean = false,
+L56:   injectTempDir?: string
+L57: ) {
+L58:   const runId = uuidv4().slice(0, 8);
+L59:   const tempDir = injectTempDir || createTempDir();
+L60:   const logFilename = path.join(tempDir, `${runId}_log.json`);
+L61: 
+L62:   console.log("Saving outputs to ", tempDir);
+L63: 
+L64:   const run: DiagramRun = {
+L65:     id: runId,
+L66:     config: {
+L67:       generationModel,
+L68:       critiqueModel,
+L69:       maxFixSteps,
+L70:       maxCritiqueRounds,
+L71:       provideFixHistory,
+L72:       provideCritiqueHistory,
+L73:       provideDataForCritique,
+L74:     },
+L75:     rounds: [],
+L76:     totalTime: 0,
+L77:   };
+L78: 
+L79:   function saveLogStep() {
+L80:     writeToFile(logFilename, JSON.stringify(run, null, 2));
+L81:   }
+L82: 
+L83:   const startTime = Date.now();
+L84: 
+L85:   try {
+L86:     const initialDiagram = await generateDiagram(
+L87:       data,
+L88:       dataDesc,
+L89:       typeofDiagram,
+L90:       generationModel,
+L91:       tempDir,
+L92:       saveLogStep
+L93:     );
+L94: 
+L95:     let currentDiagramFilename = path.join(tempDir, "initial_diagram.d2");
+L96:     writeToFile(currentDiagramFilename, initialDiagram);
+L97: 
+L98:     let critiqueHistory: CritiqueHistoryItem[] = [];
+L99: 
+L100:     for (
+L101:       let critiqueRound = 0;
+L102:       critiqueRound <= maxCritiqueRounds;
+L103:       critiqueRound++
+L104:     ) {
+L105:       const roundStartTime = Date.now();
+L106:       const diagramId = `diagram_${critiqueRound.toString().padStart(2, "0")}`;
+L107: 
+L108:       run.rounds.push({
+L109:         critiqueNumber: critiqueRound,
+L110:         initialDiagramCode: initialDiagram,
+L111:         fixes: [],
+L112:         finalDiagramCode: "",
+L113:         renderedDiagramFilename: "",
+L114:         timeTaken: 0,
+L115:       });
+L116: 
+L117:       const diagramCheck = await checkAndFixDiagram(
+L118:         fixModel,
+L119:         currentDiagramFilename,
+L120:         diagramId,
+L121:         maxFixSteps,
+L122:         tempDir,
+L123:         provideFixHistory,
+L124:         (fixAttempt: FixAttempt) => {
+L125:           run.rounds[critiqueRound].fixes.push(fixAttempt);
+L126:           saveLogStep();
+L127:         }
+L128:       );
+L129: 
+L130:       if (!diagramCheck || !diagramCheck.success || !diagramCheck.d2file) {
+L131:         run.rounds[critiqueRound].failureReason = "Failed to fix diagram";
+L132:         saveLogStep();
+L133:         break;
+L134:       }
+L135: 
+L136:       run.rounds[critiqueRound].finalDiagramCode = diagramCheck.diagramCode;
+L137: 
+L138:       run.rounds[critiqueRound].renderedDiagramFilename =
+L139:         diagramCheck.outputImage;
+L140: 
+L141:       if (critiqueRound === maxCritiqueRounds) break;
+L142: 
+L143:       const critique = await visualReflect(
+L144:         diagramCheck.outputImage,
+L145:         critiqueModel,
+L146:         "information flow",
+L147:         provideDataForCritique ? data : undefined
+L148:       );
+L149: 
+L150:       run.rounds[critiqueRound].critique = critique;
+L151: 
+L152:       const newDiagram = await improveDiagramWithCritique(
+L153:         diagramCheck.diagramCode,
+L154:         critique,
+L155:         diagramId,
+L156:         typeofDiagram,
+L157:         generationModel,
+L158:         tempDir,
+L159:         saveLogStep,
+L160:         provideDataForCritique ? data : undefined,
+L161:         provideCritiqueHistory ? critiqueHistory : undefined
+L162:       );
+L163: 
+L164:       critiqueHistory.push(newDiagram.critique);
+L165: 
+L166:       currentDiagramFilename = path.join(tempDir, `${diagramId}_improved.d2`);
+L167:       writeToFile(currentDiagramFilename, newDiagram.cleanedDiagramCode);
+L168: 
+L169:       run.rounds[critiqueRound].timeTaken = Date.now() - roundStartTime;
+L170:       saveLogStep();
+L171:     }
+L172:   } catch (error) {
+L173:     console.error("Error in diagen:", error);
+L174:     run.rounds.push({
+L175:       critiqueNumber: run.rounds.length,
+L176:       initialDiagramCode: "",
+L177:       fixes: [],
+L178:       finalDiagramCode: "",
+L179:       renderedDiagramFilename: "",
+L180:       failureReason: (error as Error).message,
+L181:       timeTaken: 0,
+L182:     });
+L183:     saveLogStep();
+L184:   }
+L185: 
+L186:   run.totalTime = Date.now() - startTime;
+L187:   saveLogStep();
+L188: 
+L189:   // Pretty print results
+L190:   console.log("\nDiagram Generation Results:");
+L191:   console.log("---------------------------");
+L192:   console.log(`Run ID: ${run.id}`);
+L193:   console.log(`Total time: ${run.totalTime}ms`);
+L194:   console.log("\nConfig:");
+L195:   console.log(JSON.stringify(run.config, null, 2));
+L196:   console.log("\nRounds:");
+L197:   run.rounds.forEach((round, index) => {
+L198:     console.log(`\nRound ${index + 1}:`);
+L199:     console.log(`  Critique number: ${round.critiqueNumber}`);
+L200:     console.log(`  Number of fixes: ${round.fixes.length}`);
+L201:     console.log(`  Time taken: ${round.timeTaken}ms`);
+L202:     if (round.failureReason) {
+L203:       console.log(`  Failure reason: ${round.failureReason}`);
+L204:     }
+L205:     console.log(`  Rendered diagram: ${round.renderedDiagramFilename}`);
+L206:   });
+L207: }
+L208: 
+L209: // (async () => {
+L210: //   // const data2 = fs.readFileSync("./tests/introducing-rakis.mdx", "utf8");
+L211: //   // await diagen(
+L212: //   //   data2,
+L213: //   //   "Article about a project called Rakis",
+L214: //   //   "Architecture, key components and flow",
+L215: //   //   // "gpt-4o",
+L216: //   //   // "gemini-1.5-pro-002",
+L217: //   //   "gemini-1.5-flash-8b",
+L218: //   //   "claude-3-5-sonnet-20240620",
+L219: //   //   // "gpt-4o-mini",
+L220: //   //   // "gemini-1.5-flash",
+L221: //   //   "claude-3-haiku-20240307",
+L222: //   //   6,
+L223: //   //   5,
+L224: //   //   true,
+L225: //   //   true,
+L226: //   //   true
+L227: //   // );
+L228: //   // const data = fs.readFileSync("./tests/compiled-code.txt", "utf8");
+L229: //   // await diagen(
+L230: //   //   data,
+L231: //   //   "Codebase for a project called mandark",
+L232: //   //   "code structure and key components",
+L233: //   //   // "gpt-4o",
+L234: //   //   "claude-3-5-sonnet-20240620",
+L235: //   //   // "gpt-4o-mini",
+L236: //   //   // "claude-3-haiku-20240307",
+L237: //   //   // "gemini-1.5-flash-8b",
+L238: //   //   // "gemini-1.5-flash",
+L239: //   //   "gemini-1.5-pro-exp-0827",
+L240: //   //   // "claude-3-haiku-20240307",
+L241: //   //   // "claude-3-5-sonnet-20240620",
+L242: //   //   6,
+L243: //   //   2,
+L244: //   //   true,
+L245: //   //   true
+L246: //   // );
+L247: // })();
+L248: 
+</src/diagen.ts>
+
+<src/index.ts>
+L1: 
+</src/index.ts>
+
+<src/types.ts>
+L1: export type { ChatModel as OpenAIModel } from "openai/resources";
+L2: export { Model as ClaudeModel } from "@anthropic-ai/sdk/resources";
+L3: 
+L6: 
+L7: export type GeminiModel =
+L8:   | "gemini-1.5-flash-002"
+L9:   | "gemini-1.5-flash-8b"
+L10:   | "gemini-1.5-pro-002";
+L11: 
+L12: export type SupportedModel = OpenAIModel | ClaudeModel | GeminiModel;
+L13: 
+L14: export type FixAttempt = {
+L15:   diagramCode: string;
+L16:   errors: string;
+L17:   fixedDiagram: string;
+L18:   response: string;
+L19: };
+L20: 
+L21: export type Message = {
+L22:   role: "user" | "assistant";
+L23:   content: string;
+L24: };
+L25: 
+L26: export type CritiqueHistoryItem = {
+L27:   diagramCode: string;
+L28:   critique: string;
+L29:   fullResponse: string;
+L30:   improvedDiagram: string;
+L31: };
+L32: 
+</src/types.ts>
+
+<src/ablation-study/ablate.ts>
+L4: 
+L5: const GENERATIONMODELS: SupportedModel[] = [
+L6:   "claude-3-5-sonnet-20240620",
+L7:   "gpt-4o",
+L8:   "gpt-4o-mini",
+L9:   "gemini-1.5-pro-002",
+L10:   "gemini-1.5-flash-8b",
+L11: ];
+L12: 
+L13: const CRITIQUEMODELS: (ClaudeModel | GeminiModel)[] = [
+L14:   "claude-3-5-sonnet-20240620",
+L15:   "claude-3-haiku-20240307",
+L16:   "gemini-1.5-flash-8b",
+L17:   "gemini-1.5-pro-002",
+L18: ];
+L19: 
+L20: let runCount = 0;
+L21: 
+L22: const data = fs.readFileSync(
+L23:   __dirname + "/../../tests/introducing-rakis.mdx",
+L24:   "utf8"
+L25: );
+L26: 
+L27: for (let i = 0; i < GENERATIONMODELS.length; i++) {
+L28:   for (let j = 0; j < CRITIQUEMODELS.length; j++) {
+L29:     runCount++;
+L30: 
+L31:     const tempDir = `/Users/hrishioa/Dropbox/Projects/Southbridge/diagen/study/generation-critique/${runCount}`;
+L32: 
+L33:     if (fs.existsSync(tempDir)) {
+L34:       console.log(
+L35:         `Skipping run ${runCount} because the directory already exists`
+L36:       );
+L37:       continue;
+L38:     }
+L39: 
+L40:     fs.mkdirSync(tempDir, { recursive: true });
+L41: 
+L42:     console.log(
+L43:       `Running run ${runCount} with generation model ${GENERATIONMODELS[i]} and critique model ${CRITIQUEMODELS[j]}`
+L44:     );
+L45: 
+L46:     await diagen(
+L47:       data,
+L48:       "Article about a project called Rakis",
+L49:       "Architecture, key components and flow",
+L50:       GENERATIONMODELS[i],
+L51:       "claude-3-5-sonnet-20240620",
+L52:       CRITIQUEMODELS[j],
+L53:       5,
+L54:       5,
+L55:       true,
+L56:       true,
+L57:       true,
+L58:       tempDir
+L59:     );
+L60:   }
+L61: }
+L62: 
+</src/ablation-study/ablate.ts>
+
+<src/diagen/fix.ts>
+L4:   cleanDiagramWithTip20,
+L5:   lineTag,
+L6:   removeLineTag,
+L7:   writeToFile,
+L8: } from "../utils/helpers";
+L14: 
+L15: type FixResult =
+L16:   | {
+L17:       success: false;
+L18:       error: string;
+L19:       fixAttempts: number;
+L20:     }
+L21:   | {
+L22:       success: true;
+L23:       d2file: string;
+L24:       outputImage: string;
+L25:       diagramCode: string;
+L26:       fixAttempts: number;
+L27:     };
+L28: 
+L29: export async function checkAndFixDiagram(
+L30:   model: SupportedModel,
+L31:   diagramFilename: string,
+L32:   diagramId: string,
+L33:   fixRounds: number,
+L34:   tempDir: string,
+L35:   provideFixHistory: boolean = false,
+L36:   saveFixAttempt: (fixAttempt: FixAttempt) => void
+L37: ): Promise<FixResult> {
+L38:   const fixHistory: FixAttempt[] = [];
+L39:   const initialDiagramCode = fs.readFileSync(diagramFilename, "utf-8");
+L40: 
+L41:   const checkSpinner = ora(`Checking diagram (${diagramId})`).start();
+L42: 
+L43:   const initialRenderResult = await render(
+L44:     diagramFilename,
+L45:     `${diagramId}_original`,
+L46:     tempDir
+L47:   );
+L48: 
+L49:   if (initialRenderResult.success && initialRenderResult.filename) {
+L50:     checkSpinner.succeed(`Diagram rendered successfully (${diagramId})`);
+L51:     return {
+L52:       success: true,
+L53:       d2file: diagramFilename,
+L54:       outputImage: initialRenderResult.filename,
+L55:       diagramCode: initialDiagramCode,
+L56:       fixAttempts: 0,
+L57:     };
+L58:   }
+L59: 
+L60:   checkSpinner.fail(`Rendering failed (${diagramId}), trying to fix...`);
+L61: 
+L62:   let latestDiagramCode = initialDiagramCode;
+L63:   let fixAttempts = 0;
+L64: 
+L65:   for (let i = 0; i < fixRounds; i++) {
+L66:     fixAttempts++;
+L67:     const fixDiagramId = `${diagramId}_fixed_${i.toString().padStart(2, "0")}`;
+L68: 
+L69:     const fixSpinner = ora(
+L70:       `Fixing diagram (${diagramId}), try ${i + 1}`
+L71:     ).start();
+L72: 
+L73:     let messages: Message[] = [];
+L74: 
+L75:     if (provideFixHistory) {
+L76:       fixHistory.forEach((attempt, index) => {
+L77:         if (index === 0) {
+L78:           messages.push({
+L79:             role: "user",
+L80:             content: fixPrompt(attempt.errors, initialDiagramCode),
+L81:           });
+L82:         } else {
+L83:           // TODO: Move this prompt out and join it with the other one like we do in visualReflect
+L84:           messages.push({
+L85:             role: "user",
+L86:             content: `The previous fix attempt resulted in the following errors:\n\`\`\`\n${attempt.errors}\n\`\`\`\nPlease fix these errors in the previously provided diagram.`,
+L87:           });
+L88:         }
+L89:         messages.push({
+L90:           role: "assistant",
+L91:           content: `Here's the fixed diagram code:\n\`\`\`d2\n${lineTag(
+L92:             attempt.fixedDiagram
+L93:           )}\n\`\`\``,
+L94:         });
+L95:       });
+L96:     }
+L97: 
+L98:     // Add the current attempt
+L99:     if (fixHistory.length > 0 && provideFixHistory) {
+L100:       messages.push({
+L101:         role: "user",
+L102:         content: `The previous fix attempt resulted in the following errors:\n\`\`\`\n${
+L103:           fixHistory[fixHistory.length - 1].errors
+L104:         }\n\`\`\`\nPlease fix these errors in the previously provided diagram.`,
+L105:       });
+L106:     } else {
+L107:       messages.push({
+L108:         role: "user",
+L109:         content: fixPrompt(initialRenderResult.err!, latestDiagramCode),
+L110:       });
+L111:     }
+L112: 
+L113:     const stream = await callAIStream(
+L114:       model,
+L115:       messages,
+L116:       undefined,
+L117:       tempDir,
+L118:       fixDiagramId
+L119:     );
+L120: 
+L121:     let response = "";
+L122:     let tokenCount = 0;
+L123: 
+L124:     for await (const token of stream) {
+L125:       response += token;
+L126:       tokenCount++;
+L127:       fixSpinner.text = `Fixing diagram errors (${tokenCount} tokens)`;
+L128:     }
+L129: 
+L130:     fixSpinner.succeed(`New diagram generated with fixes for (${diagramId})`);
+L131: 
+L132:     response = removeLineTag(response);
+L133: 
+L134:     const cleanedDiagram = await cleanDiagramWithTip20(
+L135:       response,
+L136:       "claude-3-haiku-20240307"
+L137:     );
+L138: 
+L139:     latestDiagramCode = cleanedDiagram;
+L140:     const latestDiagramFilename = path.join(tempDir, `${fixDiagramId}.d2`);
+L141:     writeToFile(latestDiagramFilename, latestDiagramCode);
+L142: 
+L143:     const renderSpinner = ora(`Checking diagram (${fixDiagramId})`).start();
+L144: 
+L145:     const renderResult = await render(
+L146:       latestDiagramFilename,
+L147:       fixDiagramId,
+L148:       tempDir
+L149:     );
+L150: 
+L151:     if (renderResult.success && renderResult.filename) {
+L152:       renderSpinner.succeed(`Diagram rendered successfully (${fixDiagramId})`);
+L153:       return {
+L154:         success: true,
+L155:         d2file: latestDiagramFilename,
+L156:         outputImage: renderResult.filename,
+L157:         diagramCode: latestDiagramCode,
+L158:         fixAttempts,
+L159:       };
+L160:     }
+L161: 
+L162:     renderSpinner.fail(`Rendering failed for ${fixDiagramId})`);
+L163: 
+L164:     const fixAttempt: FixAttempt = {
+L165:       diagramCode: latestDiagramCode,
+L166:       errors: renderResult.err!,
+L167:       fixedDiagram: cleanedDiagram,
+L168:       response: response,
+L169:     };
+L170: 
+L171:     fixHistory.push(fixAttempt);
+L172:     saveFixAttempt(fixAttempt);
+L173:   }
+L174: 
+L175:   return {
+L176:     success: false,
+L177:     error: `Failed to fix diagram after ${fixAttempts} attempts`,
+L178:     fixAttempts,
+L179:   };
+L180: }
+L181: 
+</src/diagen/fix.ts>
+
+<src/diagen/generate.ts>
+L6: 
+L7: export async function generateDiagram(
+L8:   data: string,
+L9:   dataDesc: string,
+L10:   typeofDiagram: string,
+L11:   model: SupportedModel,
+L12:   tempDir: string,
+L13:   saveLogStep?: (step: any) => void
+L14: ) {
+L15:   let stream = await callAIStream(
+L16:     model,
+L17:     [
+L18:       {
+L19:         role: "user",
+L20:         content: generationPrompt(data, dataDesc, typeofDiagram),
+L21:       },
+L22:     ],
+L23:     "You are a D2 diagram generator that can create beautiful and expressive d2 diagrams.",
+L24:     tempDir,
+L25:     "initial_diagram"
+L26:   );
+L27: 
+L28:   const spinner = ora("Generating diagram").start();
+L29: 
+L30:   let response = "";
+L31:   let tokenCount = 0;
+L32: 
+L33:   for await (const token of stream) {
+L34:     response += token;
+L35:     tokenCount++;
+L36:     spinner.text = `Generating diagram (${tokenCount} tokens)`;
+L37:   }
+L38: 
+L39:   if (saveLogStep)
+L40:     saveLogStep({ type: "diagram_generated", diagram: response, model: model });
+L41: 
+L42:   spinner.succeed("Diagram generated");
+L43: 
+L44:   // Clean the generated diagram
+L45:   const cleanedDiagram = await cleanDiagramWithTip20(
+L46:     response,
+L47:     "claude-3-haiku-20240307"
+L48:   );
+L49: 
+L50:   if (saveLogStep)
+L51:     saveLogStep({
+L52:       type: "diagram_cleaned",
+L53:       diagram: cleanedDiagram,
+L54:       model: "claude-3-haiku-20240307",
+L55:     });
+L56: 
+L57:   return cleanedDiagram;
+L58: }
+L59: 
+</src/diagen/generate.ts>
+
+<src/diagen/improve.ts>
+L6: 
+L7: export async function improveDiagramWithCritique(
+L8:   diagramCode: string,
+L9:   critique: string,
+L10:   id: string,
+L11:   typeofDiagram: string,
+L12:   model: SupportedModel,
+L13:   tempDir: string,
+L14:   saveLogStep?: (step: any) => void,
+L15:   inputData?: string,
+L16:   critiqueHistory?: CritiqueHistoryItem[]
+L17: ) {
+L18:   const messages: Message[] = [];
+L19: 
+L20:   critiqueHistory?.forEach((hCritique, index) => {
+L21:     if (index === 0) {
+L22:       messages.push({
+L23:         role: "user",
+L24:         content: reflectionPrompt(
+L25:           typeofDiagram,
+L26:           hCritique.critique,
+L27:           hCritique.diagramCode,
+L28:           inputData
+L29:         ),
+L30:       });
+L31:     } else {
+L32:       messages.push({
+L33:         role: "user",
+L34:         content: reflectionPrompt(typeofDiagram, hCritique.critique),
+L35:       });
+L36:     }
+L37: 
+L38:     messages.push({
+L39:       role: "assistant",
+L40:       content: hCritique.fullResponse,
+L41:     });
+L42:   });
+L43: 
+L44:   if (critiqueHistory?.length === 0) {
+L45:     messages.push({
+L46:       role: "user",
+L47:       content: reflectionPrompt(
+L48:         typeofDiagram,
+L49:         critique,
+L50:         diagramCode,
+L51:         inputData
+L52:       ),
+L53:     });
+L54:   } else {
+L55:     messages.push({
+L56:       role: "user",
+L57:       content: reflectionPrompt(typeofDiagram, critique),
+L58:     });
+L59:   }
+L60: 
+L61:   const critiqueSpinner = ora("Improving diagram with critique").start();
+L62: 
+L63:   const stream = await callAIStream(
+L64:     model,
+L65:     messages,
+L66:     undefined,
+L67:     tempDir,
+L68:     `critique_improvement_${id}`
+L69:   );
+L70: 
+L71:   let response = "";
+L72:   let tokenCount = 0;
+L73: 
+L74:   for await (const token of stream) {
+L75:     response += token;
+L76:     tokenCount++;
+L77:     critiqueSpinner.text = `Improving diagram with critique (${tokenCount} tokens)`;
+L78:   }
+L79: 
+L80:   if (saveLogStep)
+L81:     saveLogStep({
+L82:       type: "critique_improvement",
+L83:       critique: critique,
+L84:       diagram: response,
+L85:       model: model,
+L86:     });
+L87: 
+L88:   critiqueSpinner.succeed("New diagram generated from critique");
+L89: 
+L90:   const cleanedDiagram = await cleanDiagramWithTip20(
+L91:     response,
+L92:     "claude-3-haiku-20240307"
+L93:   );
+L94: 
+L95:   if (saveLogStep)
+L96:     saveLogStep({
+L97:       type: "critique_improvement_cleaned",
+L98:       critique: critique,
+L99:       diagram: cleanedDiagram,
+L100:       model: "claude-3-haiku-20240307",
+L101:     });
+L102: 
+L103:   return {
+L104:     cleanedDiagramCode: cleanedDiagram,
+L105:     critique: {
+L106:       diagramCode,
+L107:       critique,
+L108:       fullResponse: response,
+L109:       improvedDiagram: cleanedDiagram,
+L110:     },
+L111:   };
+L112: }
+L113: 
+</src/diagen/improve.ts>
+
+<src/diagen/prompts.ts>
+L2: 
+L3: // prettier-ignore
+L4: export const critiquePrompt = (typeofDiagram: string, inputData?: string) =>
+L5: (inputData ? `DATA: \n\`\`\`${inputData}\`\`\`\n` : "") +
+L6: `Critique the provided ${typeofDiagram}${
+L7:   inputData ? " for the DATA" : ""
+L8: }, including style, positioning, etc. Provide just the actionable critiques (relevant to the diagram) and ways to improve and simplify, while covering what is useful to keep. Stay within what d2 can do. Stay away from vague criticisms, provide actionable changes, even suggest direct changes to the diagram. Suggest removing things if the diagram is too cluttered. Dont' ask to add a legend.`;
+L9: 
+L10: // prettier-ignore
+L11: export const fixPrompt = (errors: string, diagramCode: string) =>
+L12:   `DIAGRAM (with line numbers):
+L13: \`\`\`d2
+L14: ${lineTag(diagramCode)}
+L15: \`\`\`
+L16: 
+L17: Errors in diagram code:
+L18: \`\`\`
+L19: ${errors}
+L20: \`\`\`
+L21: 
+L22: Explain why the errors are happening. Then fix the errors in the d2 diagram code provided, and return the fixed code. Keep an eye out for recurring errors and try new fixes.`;
+L23: 
+L24: // prettier-ignore
+L25: export const generationPrompt = (data: string, dataDesc: string, typeofDiagram: string) =>
+L26: `DATA:\n\`\`\`\n${data}\n\`\`\`\n
+L27: INSTRUCTION: Data is ${dataDesc}. Generate a landscape (left to right preferred) d2 diagram code (in d2 markdown blocks) for the DATA provided, covering ${typeofDiagram}. 1. Feel free to be creative
+L28: 2. Provide a single diagram only, with good visual design. 3. Make sure the code is for d2 and not mermaid.
+L29: 4. Keep it simple when possible.
+L30: 5. Don't make legends and remove any that exist.`;
+L31: 
+L32: // prettier-ignore
+L33: export const reflectionPrompt = (typeofDiagram: string, critique: string, diagramCode?: string,inputData?: string) =>
+L34: `${inputData ? `DATA: \n\`\`\`${inputData}\`\`\`\n` : ""}${diagramCode? `DIAGRAM: \n\n\`\`\`d2\n${diagramCode}\n\`\`\`\n`: ""}Areas to improve:\n\`\`\`\n${critique}\n\`\`\`
+L35: ${diagramCode ? `Provided is a d2 ${typeofDiagram} diagram` : 'Here are more suggestions.'}${inputData ? " generated from DATA" : ""}. Apply the critiques when possible to improve the diagram but don't make it too complex. Explain very shortly how you will improve, then generate and return the improved d2 diagram code.`;
+L36: 
+</src/diagen/prompts.ts>
+
+<src/diagen/render.ts>
+L4: 
+L5: interface RenderResult {
+L6:   success: boolean;
+L7:   err?: string;
+L8:   filename?: string;
+L9:   executionTime: number;
+L10: }
+L11: 
+L12: export async function render(
+L13:   diagramLocation: string,
+L14:   diagramId: string,
+L15:   tempDir: string,
+L16:   saveLogStep?: (step: any) => void,
+L17:   timeoutMs: number = 20000
+L18: ): Promise<RenderResult> {
+L19:   const diagramsDir = path.join(tempDir, "diagrams");
+L20:   if (!fs.existsSync(diagramsDir)) {
+L21:     fs.mkdirSync(diagramsDir, { recursive: true });
+L22:   }
+L23: 
+L24:   const outputPath = path.join(diagramsDir, `${diagramId}.png`);
+L25:   const d2Command = `d2 --theme=300 -l dagre ${diagramLocation} ${outputPath}`;
+L26: 
+L27:   return new Promise<RenderResult>((resolve) => {
+L28:     const startTime = Date.now();
+L29:     const process = exec(d2Command, (err, stdout, stderr) => {
+L30:       const executionTime = Date.now() - startTime;
+L31:       if (err || !stderr.includes("success")) {
+L32:         const result: RenderResult = {
+L33:           success: false,
+L34:           err: stderr || err?.message,
+L35:           executionTime,
+L36:         };
+L37:         if (saveLogStep) {
+L38:           saveLogStep({
+L39:             type: "render_error",
+L40:             diagramId,
+L41:             diagramLocation,
+L42:             err: result.err,
+L43:             stderr,
+L44:             stdout,
+L45:             executionTime,
+L46:           });
+L47:         }
+L48:         resolve(result);
+L49:       } else {
+L50:         const result: RenderResult = {
+L51:           success: true,
+L52:           filename: outputPath,
+L53:           executionTime,
+L54:         };
+L55:         if (saveLogStep) {
+L56:           saveLogStep({
+L57:             type: "render_success",
+L58:             diagramId,
+L59:             outputPath,
+L60:             diagramLocation,
+L61:             executionTime,
+L62:           });
+L63:         }
+L64:         resolve(result);
+L65:       }
+L66:     });
+L67: 
+L68:     setTimeout(() => {
+L69:       process.kill();
+L70:       const result: RenderResult = {
+L71:         success: false,
+L72:         err: "Render process timed out",
+L73:         executionTime: timeoutMs,
+L74:       };
+L75:       if (saveLogStep) {
+L76:         saveLogStep({
+L77:           type: "render_timeout",
+L78:           diagramId,
+L79:           diagramLocation,
+L80:           executionTime: timeoutMs,
+L81:         });
+L82:       }
+L83:       resolve(result);
+L84:     }, timeoutMs);
+L85:   });
+L86: }
+L87: 
+</src/diagen/render.ts>
+
+<src/diagen/visualReflect.ts>
+L2:   GoogleGenerativeAI,
+L3:   HarmCategory,
+L4:   HarmBlockThreshold,
+L5: } from "@google/generative-ai";
+L17: 
+L18: export async function visualReflect(
+L19:   diagramLocation: string,
+L20:   modelName: string,
+L21:   typeofDiagram: string,
+L22:   inputData?: string,
+L23:   retries: number = 1
+L24: ): Promise<string> {
+L25:   if (isClaudeModel(modelName))
+L26:     return visualReflectWithClaude(
+L27:       diagramLocation,
+L28:       modelName,
+L29:       typeofDiagram,
+L30:       inputData,
+L31:       retries
+L32:     );
+L33:   else
+L34:     return visualReflectWithGemini(
+L35:       diagramLocation,
+L36:       modelName,
+L37:       typeofDiagram,
+L38:       inputData,
+L39:       retries
+L40:     );
+L41: }
+L42: 
+L43: export async function visualReflectWithGemini(
+L44:   diagramLocation: string,
+L45:   modelName: string,
+L46:   typeofDiagram: string,
+L47:   inputData?: string,
+L48:   retries: number = 1
+L49: ): Promise<string> {
+L50:   const apiKey = process.env.GEMINI_API_KEY;
+L51: 
+L52:   if (!apiKey) {
+L53:     throw new Error("GEMINI_API_KEY is not set in the environment variables");
+L54:   }
+L55: 
+L56:   const genAI = new GoogleGenerativeAI(apiKey);
+L57:   const fileManager = new GoogleAIFileManager(apiKey);
+L58: 
+L59:   const resizedImage = await resizeAndSaveImage(diagramLocation, 3072, 3072);
+L60: 
+L61:   const uploadSpinner = ora("Uploading diagram").start();
+L62: 
+L63:   // Upload the file
+L64:   const uploadResult = await fileManager.uploadFile(resizedImage, {
+L65:     displayName: path.basename(resizedImage),
+L66:     mimeType: "image/png",
+L67:   });
+L68: 
+L69:   uploadSpinner.succeed(`Diagram uploaded as ${uploadResult.file.uri}`);
+L70: 
+L71:   fs.rmSync(resizedImage);
+L72: 
+L73:   const model = genAI.getGenerativeModel({ model: modelName });
+L74: 
+L75:   const generationConfig = {
+L76:     temperature: GLOBAL_TEMPERATURE,
+L77:     topP: 0.95,
+L78:     topK: 40,
+L79:     maxOutputTokens: 8192,
+L80:   };
+L81: 
+L82:   const spinner = ora("Getting feedback on diagram").start();
+L83:   try {
+L84:     const chatSession = model.startChat({
+L85:       generationConfig,
+L86:       safetySettings: [
+L87:         {
+L88:           category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+L89:           threshold: HarmBlockThreshold.BLOCK_NONE,
+L90:         },
+L91:       ],
+L92:     });
+L93: 
+L94:     const result = await chatSession.sendMessage([
+L95:       critiquePrompt(typeofDiagram, inputData),
+L96:       {
+L97:         fileData: {
+L98:           mimeType: uploadResult.file.mimeType,
+L99:           fileUri: uploadResult.file.uri,
+L100:         },
+L101:       },
+L102:     ]);
+L103: 
+L104:     spinner.succeed("Got feedback on diagram");
+L105: 
+L106:     return result.response.text();
+L107:   } catch (err) {
+L108:     console.error(err);
+L109: 
+L110:     spinner.fail(`Failed to get feedback on diagram, retries - ${retries}`);
+L111: 
+L112:     if (retries == 1) throw err;
+L113:     return await visualReflect(
+L114:       diagramLocation,
+L115:       modelName,
+L116:       typeofDiagram,
+L117:       inputData,
+L118:       retries - 1
+L119:     );
+L120:   }
+L121: }
+L122: 
+L123: export async function visualReflectWithClaude(
+L124:   diagramLocation: string,
+L125:   modelName: ClaudeModel,
+L126:   typeofDiagram: string,
+L127:   inputData?: string,
+L128:   retries: number = 1
+L129: ): Promise<string> {
+L130:   const client = new Anthropic();
+L131: 
+L132:   const resizedImage = await resizeAndSaveImage(diagramLocation, 1092, 1092);
+L133: 
+L134:   const imageData = fs.readFileSync(resizedImage, { encoding: "base64" });
+L135: 
+L136:   fs.rmSync(resizedImage);
+L137: 
+L138:   const messageContent: (TextBlockParam | ImageBlockParam)[] = [
+L139:     {
+L140:       type: "text",
+L141:       text: critiquePrompt(typeofDiagram, inputData),
+L142:     },
+L143:   ];
+L144: 
+L145:   messageContent.push({
+L146:     type: "image",
+L147:     source: {
+L148:       type: "base64",
+L149:       data: imageData,
+L150:       media_type: "image/png",
+L151:     },
+L152:   });
+L153: 
+L154:   const spinner = ora(`Getting feedback on diagram from ${modelName}`).start();
+L155: 
+L156:   try {
+L157:     const response = await client.messages.create({
+L158:       model: modelName,
+L159:       max_tokens: 4096,
+L160:       temperature: GLOBAL_TEMPERATURE,
+L161:       messages: [
+L162:         {
+L163:           role: "user",
+L164:           content: messageContent,
+L165:         },
+L166:       ],
+L167:     });
+L168: 
+L169:     spinner.succeed("Got feedback on diagram");
+L170: 
+L171:     return response.content
+L172:       .filter((content) => content.type === "text")
+L173:       .map((c) => c.text)
+L174:       .join("\n");
+L175:   } catch (err) {
+L176:     console.error(err);
+L177: 
+L178:     spinner.fail(`Failed to get feedback on diagram, retries - ${retries}`);
+L179: 
+L180:     if (retries == 1) throw err;
+L181:     return await visualReflect(
+L182:       diagramLocation,
+L183:       modelName,
+L184:       typeofDiagram,
+L185:       inputData,
+L186:       retries - 1
+L187:     );
+L188:   }
+L189: }
+L190: 
+</src/diagen/visualReflect.ts>
+
+<src/utils/ai-adapters.ts>
+L3:   ClaudeModel,
+L4:   GeminiModel,
+L5:   Message,
+L6:   OpenAIModel,
+L7:   SupportedModel,
+L8: } from "../types";
+L11:   isClaudeModel,
+L12:   isGeminiModel,
+L13:   isOpenAIModel,
+L14:   writeToFile,
+L15: } from "./helpers";
+L16: const { GoogleGenerativeAI } = require("@google/generative-ai");
+L20: 
+L21: export const geminiAdapter = {
+L22:   generate: async (
+L23:     model: GeminiModel,
+L24:     messages: Message[],
+L25:     systemPrompt?: string
+L26:   ) => {
+L27:     if (!process.env.GEMINI_API_KEY)
+L28:       throw new Error("GEMINI_API_KEY is needed to use Gemini models");
+L29: 
+L30:     if (!messages.length || messages[messages.length - 1].role !== "user")
+L31:       throw new Error("Last message must be a user message for gemini models");
+L32: 
+L33:     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+L34: 
+L35:     const geminiModel = genAI.getGenerativeModel({
+L36:       model,
+L37:     });
+L38: 
+L39:     const generationConfig = {
+L40:       temperature: GLOBAL_TEMPERATURE,
+L41:       topP: 0.95,
+L42:       topK: 40,
+L43:       maxOutputTokens: 8192,
+L44:       responseMimeType: "text/plain",
+L45:     };
+L46: 
+L47:     const chatSession = geminiModel.startChat({
+L48:       generationConfig,
+L49:       history: messages.slice(0, -1).map((message) => ({
+L50:         role: message.role === "user" ? "user" : "model",
+L51:         parts: [{ text: message.content }],
+L52:       })),
+L53:       systemPrompt: systemPrompt,
+L54:     });
+L55: 
+L56:     const result = await chatSession.sendMessage(
+L57:       messages[messages.length - 1].content
+L58:     );
+L59: 
+L60:     return result.response.text();
+L61:   },
+L62: };
+L63: 
+L64: // Adapters
+L65: export const openaiAdapter = {
+L66:   generate: async (
+L67:     model: OpenAIModel,
+L68:     messages: Message[],
+L69:     systemPrompt?: string
+L70:   ) => {
+L71:     const client = new OpenAI();
+L72: 
+L73:     const updatedMessages: ChatCompletionMessageParam[] = systemPrompt
+L74:       ? [
+L75:           {
+L76:             role: "system",
+L77:             content: systemPrompt,
+L78:           },
+L79:           ...messages,
+L80:         ]
+L81:       : messages;
+L82: 
+L83:     const stream = await client.chat.completions.create({
+L84:       model,
+L85:       temperature: GLOBAL_TEMPERATURE,
+L86:       max_tokens: 8192,
+L87:       messages: updatedMessages,
+L88:       stream: true,
+L89:     });
+L90:     return stream;
+L91:   },
+L92: };
+L93: 
+L94: export const claudeAdapter = {
+L95:   generate: async (
+L96:     model: ClaudeModel,
+L97:     messages: Message[],
+L98:     systemPrompt?: string
+L99:   ) => {
+L100:     const client = new Anthropic();
+L101:     const stream = await client.messages.create({
+L102:       temperature: GLOBAL_TEMPERATURE,
+L103:       max_tokens: model.includes("3-5-sonnet") ? 8192 : 4096,
+L104:       model,
+L105:       system: systemPrompt,
+L106:       messages,
+L107:       stream: true,
+L108:     });
+L109:     return stream;
+L110:   },
+L111: };
+L112: 
+L113: // TODO: Make sure we translate system prompts properly
+L114: // TODO: Actually process the streams properly
+L115: export async function* callAIStream(
+L116:   model: SupportedModel,
+L117:   messages: Message[],
+L118:   systemPrompt?: string,
+L119:   promptSaveLocation?: string,
+L120:   promptId?: string
+L121: ): AsyncGenerator<string, void, undefined> {
+L122:   if (promptSaveLocation)
+L123:     writeToFile(
+L124:       path.join(promptSaveLocation, `prompt_${promptId || ""}.txt`),
+L125:       `SYSTEM PROMPT:\n${systemPrompt}\n${messages
+L126:         .map(
+L127:           (message) =>
+L128:             `\n===================================================\n${message.role}:\n${message.content}`
+L129:         )
+L130:         .join("\n")}`
+L131:     );
+L132: 
+L133:   let fullMessage = "";
+L134: 
+L135:   if (isOpenAIModel(model)) {
+L136:     const res = await openaiAdapter.generate(model, messages, systemPrompt);
+L137: 
+L138:     for await (const chunk of res) {
+L139:       if (chunk.choices[0]?.delta?.content) {
+L140:         yield chunk.choices[0]?.delta?.content || "";
+L141:         fullMessage += chunk.choices[0]?.delta?.content || "";
+L142:       }
+L143:     }
+L144:   } else if (isClaudeModel(model)) {
+L145:     const res = await claudeAdapter.generate(model, messages, systemPrompt);
+L146: 
+L147:     for await (const chunk of res) {
+L148:       if ("type" in chunk && chunk.type === "content_block_delta") {
+L149:         yield (chunk.delta as any).text || "";
+L150:         fullMessage += (chunk.delta as any).text || "";
+L151:       }
+L152:     }
+L153:   } else if (isGeminiModel(model)) {
+L154:     const res = await geminiAdapter.generate(model, messages, systemPrompt);
+L155: 
+L156:     yield res;
+L157:     fullMessage = res;
+L158:   } else {
+L159:     throw new Error("Unsupported model type");
+L160:   }
+L161: 
+L162:   if (promptSaveLocation)
+L163:     writeToFile(
+L164:       path.join(promptSaveLocation, `prompt_${promptId || ""}_response.txt`),
+L165:       fullMessage
+L166:     );
+L167: }
+L168: 
+</src/utils/ai-adapters.ts>
+
+<src/utils/constants.ts>
+L1: export const GLOBAL_TEMPERATURE = 0;
+L2: 
+</src/utils/constants.ts>
+
+<src/utils/helpers.ts>
+L4:   ClaudeModel,
+L5:   GeminiModel,
+L6:   OpenAIModel,
+L7:   SupportedModel,
+L8: } from "../types";
+L11: 
+L12: export function lineTag(input: string): string {
+L13:   // Split the input string into an array of lines
+L14:   const lines = input.split("\n");
+L15: 
+L16:   // Map over each line, adding the line number tag
+L17:   const taggedLines = lines.map((line, index) => {
+L18:     const lineNumber = index + 1;
+L19:     return `L${lineNumber}: ${line}`;
+L20:   });
+L21: 
+L22:   // Join the tagged lines back into a single string
+L23:   return taggedLines.join("\n");
+L24: }
+L25: 
+L26: export function removeLineTag(input: string): string {
+L27:   const lines = input.split("\n");
+L28:   const untaggedLines = lines.map((line) => {
+L29:     // Use a regular expression to match and remove the line tag
+L30:     return line.replace(/^L\d+:\s*/, "");
+L31:   });
+L32:   return untaggedLines.join("\n");
+L33: }
+L34: 
+L35: // Helper functions
+L36: export const createTempDir = () => {
+L37:   const saveDir = path.join(
+L38:     __dirname,
+L39:     `../../.diagen/${new Date().toISOString().replace(/[^0-9]/g, "")}`
+L40:   );
+L41:   if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true });
+L42:   return saveDir;
+L43: };
+L44: 
+L45: export const writeToFile = (filename: string, content: string) => {
+L46:   fs.writeFileSync(filename, content);
+L47: };
+L48: 
+L49: export const isOpenAIModel = (model: SupportedModel): model is OpenAIModel => {
+L50:   return typeof model === "string" && model.startsWith("gpt-");
+L51: };
+L52: 
+L53: export const isClaudeModel = (model: SupportedModel): model is ClaudeModel => {
+L54:   return typeof model === "string" && model.startsWith("claude-");
+L55: };
+L56: 
+L57: export const isGeminiModel = (model: SupportedModel): model is GeminiModel => {
+L58:   return typeof model === "string" && model.startsWith("gemini-");
+L59: };
+L60: 
+L61: export async function cleanDiagramWithTip20(
+L62:   diagramCode: string,
+L63:   modelName: string
+L64: ): Promise<string> {
+L65:   const spinner = ora("Cleaning diagram with tip20").start();
+L66:   let cleanedDiagram = "",
+L67:     tokenCount = 0;
+L68: 
+L69:   try {
+L70:     const cleanedResponsePackets = await tip20streaming(
+L71:       "d2",
+L72:       diagramCode,
+L73:       modelName,
+L74:       true
+L75:     );
+L76: 
+L77:     for await (const packet of cleanedResponsePackets) {
+L78:       if (packet.type === "token") {
+L79:         cleanedDiagram += packet.token;
+L80:         tokenCount++;
+L81:         spinner.text = `Cleaning diagram with tip20 (${tokenCount} tokens)`;
+L82:       }
+L83:       if (packet.type === "fullMessage") cleanedDiagram = packet.message;
+L84:     }
+L85: 
+L86:     spinner.succeed("Diagram cleaned with tip20");
+L87:   } catch (error) {
+L88:     spinner.fail("Failed to clean diagram with tip20");
+L89:     console.error("Error cleaning diagram:", error);
+L90:     cleanedDiagram = diagramCode; // Use original code if cleaning fails
+L91:   }
+L92: 
+L93:   return cleanedDiagram;
+L94: }
+L95: 
+</src/utils/helpers.ts>
+
+<src/utils/resize.ts>
+L4: 
+L5: interface ImagePiece {
+L6:   buffer: Buffer;
+L7:   x: number;
+L8:   y: number;
+L9:   width: number;
+L10:   height: number;
+L11: }
+L12: 
+L13: export async function resizeAndSaveImage(
+L14:   imagePath: string,
+L15:   maxWidth: number,
+L16:   maxHeight: number
+L17: ) {
+L18:   // console.log("Trying to resize image:", imagePath);
+L19: 
+L20:   // Load the image
+L21:   const image = sharp(imagePath);
+L22:   const metadata = await image.metadata();
+L23: 
+L24:   if (!metadata.width || !metadata.height) {
+L25:     throw new Error("Unable to get image dimensions");
+L26:   }
+L27: 
+L28:   // console.log("Original image dimensions:", metadata);
+L29: 
+L30:   // Resize the image to fit within maxWidth and maxHeight while maintaining aspect ratio
+L31:   const resizedImage = image.resize({
+L32:     width: maxWidth,
+L33:     height: maxHeight,
+L34:     fit: sharp.fit.inside,
+L35:     withoutEnlargement: true,
+L36:   });
+L37: 
+L38:   // Get the metadata of the resized image
+L39:   const resizedMetadata = await resizedImage.metadata();
+L40:   // console.log("Resized image dimensions:", resizedMetadata);
+L41: 
+L42:   // Get image extension
+L43:   const imageExt = path.extname(imagePath);
+L44: 
+L45:   const outputPath = imagePath.replace(imageExt, "_resized" + imageExt);
+L46: 
+L47:   await resizedImage.toFile(outputPath);
+L48: 
+L49:   // console.log(`Resized image saved to: ${outputPath}`);
+L50: 
+L51:   return outputPath;
+L52: }
+L53: 
+</src/utils/resize.ts>
+

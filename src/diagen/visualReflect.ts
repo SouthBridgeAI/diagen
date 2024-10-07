@@ -13,6 +13,7 @@ import fs from "fs";
 import { ImageBlockParam, TextBlockParam } from "@anthropic-ai/sdk/resources";
 import { isClaudeModel } from "../utils/helpers";
 import { critiquePrompt } from "./prompts";
+import { GLOBAL_TEMPERATURE } from "../utils/constants";
 
 export async function visualReflect(
   diagramLocation: string,
@@ -72,7 +73,7 @@ export async function visualReflectWithGemini(
   const model = genAI.getGenerativeModel({ model: modelName });
 
   const generationConfig = {
-    temperature: 0.2,
+    temperature: GLOBAL_TEMPERATURE,
     topP: 0.95,
     topK: 40,
     maxOutputTokens: 8192,
@@ -156,7 +157,7 @@ export async function visualReflectWithClaude(
     const response = await client.messages.create({
       model: modelName,
       max_tokens: 4096,
-      temperature: 0.1,
+      temperature: GLOBAL_TEMPERATURE,
       messages: [
         {
           role: "user",

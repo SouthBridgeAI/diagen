@@ -13,13 +13,10 @@ import {
   isOpenAIModel,
   writeToFile,
 } from "./helpers";
-const {
-  GoogleGenerativeAI,
-  HarmCategory,
-  HarmBlockThreshold,
-} = require("@google/generative-ai");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 import path from "path";
 import type { ChatCompletionMessageParam } from "openai/resources";
+import { GLOBAL_TEMPERATURE } from "./constants";
 
 export const geminiAdapter = {
   generate: async (
@@ -40,7 +37,7 @@ export const geminiAdapter = {
     });
 
     const generationConfig = {
-      temperature: 0.1,
+      temperature: GLOBAL_TEMPERATURE,
       topP: 0.95,
       topK: 40,
       maxOutputTokens: 8192,
@@ -85,7 +82,7 @@ export const openaiAdapter = {
 
     const stream = await client.chat.completions.create({
       model,
-      temperature: 0.1,
+      temperature: GLOBAL_TEMPERATURE,
       max_tokens: 8192,
       messages: updatedMessages,
       stream: true,
@@ -102,7 +99,7 @@ export const claudeAdapter = {
   ) => {
     const client = new Anthropic();
     const stream = await client.messages.create({
-      temperature: 0.1,
+      temperature: GLOBAL_TEMPERATURE,
       max_tokens: model.includes("3-5-sonnet") ? 8192 : 4096,
       model,
       system: systemPrompt,

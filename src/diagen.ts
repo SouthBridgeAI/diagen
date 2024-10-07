@@ -52,10 +52,11 @@ export async function diagen(
   maxCritiqueRounds: number = 2,
   provideFixHistory: boolean = false,
   provideCritiqueHistory: boolean = false,
-  provideDataForCritique: boolean = false
+  provideDataForCritique: boolean = false,
+  injectTempDir?: string
 ) {
   const runId = uuidv4().slice(0, 8);
-  const tempDir = createTempDir();
+  const tempDir = injectTempDir || createTempDir();
   const logFilename = path.join(tempDir, `${runId}_log.json`);
 
   console.log("Saving outputs to ", tempDir);
@@ -205,42 +206,42 @@ export async function diagen(
   });
 }
 
-(async () => {
-  const data2 = fs.readFileSync("./tests/introducing-rakis.mdx", "utf8");
-  await diagen(
-    data2,
-    "Article about a project called Rakis",
-    "Architecture, key components and flow",
-    // "gpt-4o",
-    // "gemini-1.5-pro-002",
-    "gemini-1.5-flash-8b",
-    "claude-3-5-sonnet-20240620",
-    // "gpt-4o-mini",
-    // "gemini-1.5-flash",
-    "claude-3-haiku-20240307",
-    6,
-    5,
-    true,
-    true,
-    true
-  );
-  // const data = fs.readFileSync("./tests/compiled-code.txt", "utf8");
-  // await diagen(
-  //   data,
-  //   "Codebase for a project called mandark",
-  //   "code structure and key components",
-  //   // "gpt-4o",
-  //   "claude-3-5-sonnet-20240620",
-  //   // "gpt-4o-mini",
-  //   // "claude-3-haiku-20240307",
-  //   // "gemini-1.5-flash-8b",
-  //   // "gemini-1.5-flash",
-  //   "gemini-1.5-pro-exp-0827",
-  //   // "claude-3-haiku-20240307",
-  //   // "claude-3-5-sonnet-20240620",
-  //   6,
-  //   2,
-  //   true,
-  //   true
-  // );
-})();
+// (async () => {
+//   // const data2 = fs.readFileSync("./tests/introducing-rakis.mdx", "utf8");
+//   // await diagen(
+//   //   data2,
+//   //   "Article about a project called Rakis",
+//   //   "Architecture, key components and flow",
+//   //   // "gpt-4o",
+//   //   // "gemini-1.5-pro-002",
+//   //   "gemini-1.5-flash-8b",
+//   //   "claude-3-5-sonnet-20240620",
+//   //   // "gpt-4o-mini",
+//   //   // "gemini-1.5-flash",
+//   //   "claude-3-haiku-20240307",
+//   //   6,
+//   //   5,
+//   //   true,
+//   //   true,
+//   //   true
+//   // );
+//   // const data = fs.readFileSync("./tests/compiled-code.txt", "utf8");
+//   // await diagen(
+//   //   data,
+//   //   "Codebase for a project called mandark",
+//   //   "code structure and key components",
+//   //   // "gpt-4o",
+//   //   "claude-3-5-sonnet-20240620",
+//   //   // "gpt-4o-mini",
+//   //   // "claude-3-haiku-20240307",
+//   //   // "gemini-1.5-flash-8b",
+//   //   // "gemini-1.5-flash",
+//   //   "gemini-1.5-pro-exp-0827",
+//   //   // "claude-3-haiku-20240307",
+//   //   // "claude-3-5-sonnet-20240620",
+//   //   6,
+//   //   2,
+//   //   true,
+//   //   true
+//   // );
+// })();

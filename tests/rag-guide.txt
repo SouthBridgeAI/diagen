@@ -1,0 +1,425 @@
+---
+layout: post
+title: "Better RAG 1: Basics"
+date: 2024-03-12 00:00:00
+image: "/images/posts/RAR0/cover.jpeg"
+description: "Getting to retrieval-augmented research, a series of everything I've learned building RAG pipelines"
+tags:
+  - Series
+  - Large Language Models
+  - RAG
+  - Retrieval Augmented Generation
+  - WalkingRAG
+  - Retrieval Augmented Research
+categories:
+  - Large Language Models
+  - Retrieval Augmented Generation
+twitter_text: "Getting to retrieval-augmented research, a series of everything I've learned building RAG pipelines"
+---
+
+import Callout from "../../components/postComponents/Callout";
+
+[Large Language Models](https://chat.openai.com) have proven themselves to be wonderful [few-shot learners](https://arxiv.org/abs/2005.14165), almost [general-purpose intelligences](https://arxiv.org/abs/2303.12712) that can learn and execute new tasks, process complex information and serve as digital assistants. However, their limited input/output window (known as context) has been the biggest hurdle in making them truly intelligent. Beyond the trillions of words used in pretraining - an expensive and time-consuming process - we are often limited to thousands of words (sometimes less than a few pages of writing) in which we can provide new information and instructions, to generate an output.
+
+If we can connect the corpus of human data with the increasing but limited contexts of LLMs, we can create systems that can learn and adapt on the fly - the same way humans can. We can build agents with persistent long-term memories, that can remember and make use of our organizational and personal data.
+
+A lot of subproblems exist in this space, but one of the simplest is that of Q&A: Given a question (from a user or an AI), can we combine LLMs with data they've never seen before to provide good answers?
+
+**Retrieval-augmented-generation** has become the simple catch-all for a lot of work in this direction. Most systems today utilize a simple pipeline: import information, embed the results (we'll explain embeddings as we go on), retrieve relevant chunks to the question, import these chunks to the limited context of a model, and ask it to answer the question. Seems pretty simple.
+
+![ragexample](/images/posts/RAR0/ragexample.png)
+
+However, things fall apart pretty quickly in practice. Retrieving the relevant parts of a very large dataset using only the information contained in a question is a pretty tall order. Depending on how complex the question is, you might need to fetch information from multiple different parts of a dataset and use references and relationships in the data to find more information that can help you arrive at an answer.
+
+Furthermore, you're always limited in the amount of information you can fetch. Even with expanding context sizes, reasoning and intelligence in models reduces the more information you inject into their input windows. Combined with increasing cost, compute and memory, retrieving higher qualities and lower quantities of information will remain a concern for the foreseeable future. This is also the reason why the modern RAG landscape can seem scary and complex - all of them represent different attempts to solve the same problems.
+
+![ragmethods](/images/posts/RAR0/ragmethods.png)
+
+<Callout variant="info">
+The illustrations above are taken from the [wonderful paper from Gao Et al](https://arxiv.org/abs/2312.10997) covering the current landscape of RAG systems and techniques. It's a more technical overview of what exists - and covers a lot more things that are out of scope for this series.
+</Callout>
+
+# Better methods
+
+In this three-part series, we'll go over ways to solve this problem. We'll start at the final step - generation - and walk all the way back to the source information, and look at improving each part.
+
+This part will be an explanation of how RAG systems work today, the complexities to consider, and the common problems we want to solve. Feel free to skip this one! The other parts will presume a working knowledge of embeddings, retrieval systems, LLM-based processing and so on.
+
+[Part 2](/retrieval-augmented-research-2-walking) will cover cyclic generation ('walking') or ways to give AI models the ability to request new information, discover long-range relationships in the information and combine them for better results. If you're familiar with [WalkingRAG](https://twitter.com/hrishioa/status/1745835962108985737), this part will cover the eponymous concept and show you how to do it yourself.
+
+[Part 3](retrieval-augmented-research-3-use-the-whole-brain) will go over transformations on the query and source data to improve retrieval performance.
+
+Let's start with the basics.
+
+# Retrieval Systems
+
+The first problem we encounter in the question-answer scenario is that of search. It has long been theorized that the problem of intelligence is that of search ([[1]](https://redirect.cs.umbc.edu/courses/471/papers/turing.pdf) [[2]](https://en.wikipedia.org/wiki/Logic_Theorist) [[3]](https://link.springer.com/chapter/10.1007/978-1-4757-1968-0_1)) - that if you can organize and retrieve information about the world relevant to any problem, you've solved 90% of what makes up an intelligent system.
+
+This is something we've tried to solve many times before:
+
+1. [BM25](https://en.wikipedia.org/wiki/Okapi_BM25) uses keywords from the query to estimate similarity and relevance to source documents - something we've used for 30-plus years.
+2. [PageRank](https://en.wikipedia.org/wiki/PageRank) uses references between pages as a way to estimate similarity and rank information based on relevance to other pieces of information.
+3. [TFIDF](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) looks at the frequency of words inside a source document to estimate relevance.
+
+In all cases, we're trying to use information from the query to find relevant parts of source documents. Our current AI summer has given us a few more tools:
+
+1. [LLM Pretraining](https://gist.github.com/ritwikraha/77e79990992043f60a9588610b2781c5) is one of the best methods we have of truly indexing large amounts of information (trillions of words) into a small network. If you've ever used ChatGPT for research, you've used it to search the pertaining corpus. Unfortunately, this is prohibitively expensive - training runs are finicky, and it's hard to induct new information without doing a completely new training run.
+2. [In-context learning](https://arxiv.org/abs/2005.14165) uses the context window of a language model (the input space at runtime) to inject information into the knowledge of a model. However, this space is highly limited - the largest [useful contexts](https://blog.google/technology/ai/google-gemini-next-generation-model-february-2024/) are still thousands of times smaller than pretraining datasets (or a thousand times smaller than the amount of email a 100-person company generates in a year). In-context learning is also very expensive - the attention mechanism inside LLMs that gives them powerful learning capabilities makes token windows [expand exponentially in cost](https://arxiv.org/abs/2209.04881).
+
+However, one of the most valuable things to come out of the last few years of AI development has been embeddings and embedding models, which have now embedded themselves into retrieval pipelines everywhere. (Perhaps too valuable - part 3 will cover the problems we create when we embed too early, and too often.)
+
+<Callout variant="warning">
+Here's the [technical definition](https://developers.google.com/machine-learning/crash-course/embeddings/video-lecture) of an embedding from Google:
+
+> An **embedding** is a relatively low-dimensional space into which you can translate high-dimensional vectors. Embeddings make it easier to do machine learning on large inputs like sparse vectors representing words. Ideally, an embedding captures some of the semantics of the input by placing semantically similar inputs close together in the embedding space.
+>
+</Callout>
+
+I admit I barely understand that sentence on my best days. Let's try a simpler explanation, trading in accuracy for better functional understanding.
+
+An embedding can be seen as a brain slice of an ML model that understands language, at the point in time it hears something. Imagine someone taking a [snapshot of your brain](https://en.wikipedia.org/wiki/Functional_magnetic_resonance_imaging) when you hear a sentence. You find out which neurons and parts of your brain activate, as you try to understand it.
+
+![fmri](/images/posts/RAR0/fmri.jpg)
+
+On its own, this is pretty useless. However, similar to our research into brains, this becomes extremely useful when you start comparing brain slices with input sentences. Similar sentences - with similar concepts - start activating the same parts of the brain, even if the actual sentences are different. We can then use similarity here as a higher-level proxy for sentence similarity.
+
+![embeddingexample](/images/posts/RAR0/embeddingexample.jpeg)
+
+This is exactly what we see when we look at embeddings. Sentences with similar concepts cluster together, even if none of the text looks the same. Here's an example - embeddings of [Tiktok posts](https://atlas.nomic.ai/map/eef7bc87-0c68-4d14-be83-157327d1e355/e3b74502-c9a4-4b24-9bbf-c9f708688ac6), clustered by topic.
+
+![embeddingexample2](/images/posts/RAR0/embeddingexample2.png)
+
+This is also why you can't mix and match embeddings from different models. Because each brain is different, similarity in embeddings (or brain slices) only makes sense for the same brain - differently trained models store information differently. An embedding from [OpenAI](https://platform.openai.com/docs/guides/embeddings) cannot be directly compared to an embedding from [Nomic](https://blog.nomic.ai/posts/nomic-embed-text-v1), the same way brain activations for me are not the same for you, even for the same sentences.
+
+<Callout variant="info">
+Retrievers like BERT and ColBERT are outside the scope of this article. They represent a different class of models trained specifically for retrieval, that can be highly effective in certain cases. [This thread from Omar](https://x.com/lateinteraction/status/1736804963760976092?s=20) is a good place to start if you're interested.
+</Callout>
+
+# Problems
+
+On the one hand, we have traditional methods like BM25 and TFIDF which rely on text-similarity - a lot less intelligent than ML-based retrieval and more brittle to changes in spelling, but far more controllable and inspectable.
+
+On the other, we have embedding-based retrieval methods, which can be useful for semantic similarity, but have a black-box problem. Embeddings are effectively inscrutable brain slices, and while [some amount of math](https://github.com/openai/openai-cookbook/blob/main/examples/Customizing_embeddings.ipynb) can help us transform embeddings, we're only beginning to scratch the surface of understanding what these encodings really mean. They're amazing when they work, but hard to fix when they don't - and they're usually [more expensive](https://invertedstone.com/calculators/embedding-pricing-calculator/) than traditional search.
+
+We also have in-context retrieval and learning - which is our highest quality, most expensive method, even if you can fit everything into a context window.
+
+![ragspace](/images/posts/RAR0/ragspace.jpeg)
+
+Most RAG systems should therefore eventually end up with a similar architecture: Use cheaper methods to cut down the search space, and add increasingly expensive and smarter methods further down the pipeline to find your way to the answer.
+
+However, there are two additional dimensions of complexity that are often overlooked.
+
+## Question Complexity
+
+This is similar to the problem of [prompt complexity](https://olickel.com/object-oriented-large-language-models#problem3promptcomplexity) - something I've covered before. Queries can vary widely in how complex they are - both in what they're asking for and the kind of retrieval that needs to happen:
+
+1. **Single Fact Retrieval** questions can be some of the simplest. This is when the question is asking for a single piece of information that is either present or absent in your data, and you're successful if you retrieve the right piece. '*What is one embedding model discussed in this article?*' requires your system to find a specific piece of information that is in this article.
+2. One level up we can have **Multi-fact retrieval**. '*What are the key types of retrievers being discussed?*' requires an exhaustive answer of all the major types, where failure to retrieve any one of them can be an issue.
+3. Further up we have **Discontiguous multi-fact retrieval**, where the information is not continuously present in the same part of the dataset. '*What are the descriptions of RAG systems used in the article?*' would be a good example.
+4. Next we have **Simple Analysis** questions. '*What are the main parts of this series, and how do they connect?*' requires an understanding of one specific section of the document.
+5. **Complex Analysis** questions can be harder, and require extended information from multiple parts of a dataset. In our case, this could be something like '*How do embeddings compare to BM25, according to the author?*'
+6. Finally we have **Research** level questions. These can be as complex as '*Why is ColBERT outside the scope of this article?*' or '*What are the key arguments and positions made in this piece?*'. On a larger dataset (like revenue projections), this can be something like '*How have the 2021 undertakings fared in generating new avenues for business?'*
+
+Not understanding question complexity can be the Achilles heel for modern RAG systems. If there is an inherent mismatch between user expectations and systems design, the specific tradeoffs made in a system (speed vs cost, smarter vs safer, etc) can completely fail the first interaction between user and machine.
+
+On the other hand, having a good estimate of the expected classes of questions can make a big difference when building a system from scratch. For example, if you expect complexity to remain under level 4, early transformations of the input data to pre-extract facts can significantly speed up search - and make it easy to identify which benchmarks to use in your evaluation.
+
+## Steering and Inspectability
+
+What is also usually neglected is the problem of steering. Things are great when they work, but the difference between demo and production is what tools you have at your disposal *when they don't.*
+
+One of the biggest benefits of LLMs over other ML solutions has been their ability to provide *intermediates* - outputs that can be modified, controlled or inspected to change behavior in predictable ways. We'll cover this more in subsequent parts, but intermediates (like chains of reasoning, labels, etc) can be crucial in making large-scale systems less black-box-y.
+
+Throughout this series we'll argue for methods that improve retrieval performance, make our systems easier to inspect and control, and how we can handle increasing question complexity. See you at the next one!
+
+# An interactive demo
+
+Here's a live comparison between in-context learning and a RAG-based approach.
+
+This [Huggingface Assistant](https://hf.co/chat/assistant/65eea277e38cee89c9ba5198) uses this article as part of the context to [Mistral-7b](https://mistral.ai/news/announcing-mistral-7b/), a relatively tiny model with 7 billion parameters.
+
+This [GPT uses the same article](https://chat.openai.com/g/g-VYkciFAHb-companion-to-betterrag-1), but makes use of embeddings and retrieval to answer the same questions, albeit with a model 50 times or more the size of Mistral-7b.
+
+Provided you didn't skip to the end, you should now be able to ask questions to both that illustrate the key differences.
+
+---
+layout: post
+title: "Better RAG 2: Single-shot is not good enough"
+date: 2024-03-13 00:00:00
+image: "/images/posts/RAR1/cover.jpeg"
+description: "How to 'walk' to better answers"
+tags:
+  - Series
+  - Large Language Models
+  - RAG
+  - Retrieval Augmented Generation
+  - WalkingRAG
+  - Retrieval Augmented Research
+categories:
+  - Large Language Models
+  - Retrieval Augmented Generation
+twitter_text: "How walking really works"
+---
+
+import Callout from "../../components/postComponents/Callout";
+import { Tweet } from "mdx-embed";
+
+<Callout variant="info">
+This is part 2 of a series on improving retrieval-augmented-generation systems. [Part 1](/retrieval-augmented-research-1-basics) covers the basics of such systems, key concerns such as question complexity, and the need for new solutions.
+
+In this part, we'll cover the basics of multi-turn retrieval - what it is, why it's needed, and how to implement it. If you were interested in how WalkingRAG works, this article should leave you with a working, implementable understanding of how to build a similar system.
+</Callout>
+
+# The Problem
+
+Almost all RAG systems today work 'single-shot' - for a given question, they retrieve information, trim and modify, and use an LLM to generate an answer. Prima facie this seems okay - until you consider how humans answer questions today.
+
+Let's presume that you're an above GPT-4 level intelligence. How often have you been able to solve problems with a single round of retrieval? In most cases, your first round of Google searches, combined with any residual information you have, gets you closer to *finding* the answer - rarely do you have everything you need for a comprehensive, correct response from the first round alone. We need a method for the central intelligence - whether that's you or an LLM - to ask for more information, contextual to the retrieval that has already taken place.
+
+Moreover, expecting single-shot RAG to hit higher and higher benchmarks is placing an impossible requirement of intelligence purely on the Retrieval system. In most cases this is an unfortunate embedding model that's trained for semantic understanding, or [something even simpler](https://en.wikipedia.org/wiki/Okapi_BM25#:~:text=BM25%20is%20a%20bag%2Dof,slightly%20different%20components%20and%20parameters.). Trying to push single-shot retrieval to human-level is an easy path to [larger and larger](https://www.pinecone.io/) vector databases, [longer context](https://www.llamaindex.ai/blog/towards-long-context-rag) embeddings, and [complex embedding transformations](https://github.com/openai/openai-cookbook/blob/main/examples/Customizing_embeddings.ipynb) where you can burn large amounts of money and dev time without much benefit.
+
+The solution that worked for us with [WalkingRAG](https://twitter.com/hrishioa/status/1745835962108985737) is to find a way for the LLM - the largest and most intelligent brain in a RAG pipeline - to ask for more information, and to use this information for multiple rounds of retrieval.
+
+To have effective multi-shot retrieval, we need three things:
+
+1. We need to extract partial information from retrieved pieces of source data, so we can learn as we go.
+
+2. We need to find new places to look, informed by the source data as well as the question.
+
+3. We need to retrieve information from those specific places.
+
+If we can successfully connect all three, we can do multi-turn retrieval.
+
+# 1. Fact Extraction
+
+<Callout variant="info">
+We'll be using [GPTs](https://openai.com/blog/introducing-the-gpt-store) and [Huggingface Assistants](https://huggingface.co/chat/assistants) as demonstrations of individual concepts. The prompts will be provided, but there's something about an interactive prompt you can poke at.
+
+The prompts used are intentionally stripped down to be illustrative - I apologize in advance for any brittleness in the outputs!
+</Callout>
+
+[Here's a GPT that demonstrates fact extraction.](https://chat.openai.com/g/g-kByF2Q1jD-partial-fact-extractor) Give it some document or text, and ask a question. [The COP24 report](https://unfccc.int/sites/default/files/resource/WHO%20COP24%20Special%20Report_final.pdf) is an easy public source you can use as a large document for testing. Let's load the document and ask a mildly complex question:
+
+![factextractor](/images/posts/RAR1/factextractor.png)
+
+If you remember [Part 1](/retrieval-augmented-research-1-basics), you'll know what's happening under the hood: OpenAI's RAG system retrieves a few relevant chunks from the document we've uploaded, sorted by embedding similarity to our question, and passes these to the LLM to use for an answer.
+
+However, in this case, we're asking the LLM to extract individual facts from the chunks provided instead of an answer, as well as a description of why this fact is relevant to an eventual answer. We're adding an extra step - almost like a [chain of thought](/everything-i-know-about-prompting-llms#engineeringtheinternalmonologue) - that will help us start listing out the information we need. Think of going to a library, and keeping a notebook of useful information as you pore over books of information.
+
+We internally call these **Partial Facts** - information extracted from the document that is at least loosely relevant to the question being asked. Here's the prompt we use:
+
+```
+Make a markdown table of relevant facts, following this typespec for the columns:
+
+"""
+fact: string; //  Provide information directly relevant to the question - either supplementary data, facts, or where the answer might be located, like pages and sections. Add definitions and other context from the page into the fact, so it's self-explanatory.
+relevance: string; // How is this fact relevant to the answer?
+"""
+```
+
+<Callout variant="warning">
+Note that the output is in Markdown here for readability - inside WalkingRAG we extract this out as streaming JSON.
+</Callout>
+
+Here's an example of facts as they stream out of WalkingRAG:
+<Tweet
+  tweetLink="hrishioa/status/1734935026201239800?s=20"
+  theme="dark"
+  align="center"
+/>
+
+# 2. Finding new threads
+
+Once we have partial facts, we want to know what they tell us about new places to look for additional information.
+
+Try the same document and question [with this GPT](https://chat.openai.com/g/g-ZqcIX0J27-partial-facts-with-links).
+Let's ask the same question, with the same document:
+
+![factswithlinks](/images/posts/RAR1/factswithlinks.png)
+
+What it's doing here is extracting references from the chunks that were retrieved. In most cases, complex documents will tell you *outright* where to look for more information - in footnotes, references, or by naming topics. It's often trivial to extract them, without much additional cost - since you're already extracting facts.
+
+All we've had to do is to expand our typespec, just a little:
+
+```
+fact: string; //  Provide information directly relevant to the question (or where to find more information in the text) - either supplementary data, facts, or where the answer might be located, like pages and sections. Add definitions and other context from the page into the fact, so it's self-explanatory.
+relevance: string; // How is this fact relevant to the answer?
+nextSource: string; // a page number, a section name, or other descriptors of where to look for more information.
+expectedInfo: string; // What information do you expect to find there?
+```
+## 3. Connecting the threads
+
+Once we have these references - in our case, we're looking for 'Sections on climate change mitigation strategies' and 'health impacts of climate change' - we need a way to retrieve new information from the document specific to these descriptors.
+
+This is where [embeddings](https://huggingface.co/blog/getting-started-with-embeddings) can be quite useful. We can embed the descriptors, and use them to search the document for new chunks of information that were missed by the previous round of retrieval.
+
+It's hard to demonstrate this with a GPT, but try pasting the descriptors right back into the conversation and asking for more facts - chances are you'll find newer, more relevant chunks and information.
+
+![usinglinks](/images/posts/RAR1/usinglinks.png)
+
+Inside WalkingRAG, we embed the `nextSource` and `expectedInfo` descriptors, and it works quite well. The semantic distance we're trying to bridge is a lot smaller - often the document will refer to the same thing the same way, and we can filter our results to make sure we retrieve newer pieces from the dataset.
+
+Now all we have to do is repeat the cycle, this time from the embedded descriptors instead of the question. We keep the facts we extract - and two very desirable properties emerge: increased entropy and intermediate outputs.
+
+# Entropy
+
+[Entropy](https://benkrause.github.io/blog/human-level-text-prediction/) is a useful term to describe the amount of information contained in a sentence. In human terms, we can call this context. Every time you've asked 'What do you mean?' in response to a question, you were likely asking for more context - or entropy.
+
+The role of entropy in semantic-search based systems cannot be understated. Most human questions to AI systems have a massive amount of implied context that is hard to infer from the question alone. Humans like to be terse - especially when they type. This is fine with other humans, who can infer a massive amount of context from the physical, professional and historical states they share with the person asking them to do something.
+
+For an automated system, there is often painfully little information in the questions you get. For example, 'Where is the big screwup?' embeds the same, regardless of whether the target document in question is [Romeo+Juliet](https://en.wikipedia.org/wiki/Romeo_%2B_Juliet) or the [Lyft Earnings call transcript](https://www.fool.com/earnings/call-transcripts/2024/02/13/lyft-lyft-q4-2023-earnings-call-transcript/).
+
+The process of walking helps us enrich the original question with contextual entropy from the dataset to further guide the eventual answer.
+
+# Intermediates
+
+You'll notice that we generate quite a bunch of intermediate outputs in our process. With a single cycle, we have extracted facts, relevance, expected next source descriptors and potential new information.
+
+This is a wonderful thing - even without any additional processing, there is already a lot that we can now do:
+
+1. We can provide immediate feedback to the user about what goes on behind the scenes. This makes it easier for users to trust the system, verify outputs, and provide more feedback when the final result isn't up to spec. In a more complex system, users can interrupt cycles, modify outputs or questions, and return control to the system to *steer* it in a new direction.
+
+2. The intermediates label and classify the document as more questions are asked - giving us a kind of long-term memory. We have extracted facts, which are a good source of information to be re-embedded and searched instead of the source document. We also know the causal paths we take through the document - where the false starts are, and where cycles usually end.
+
+3. We're also building a knowledge graph of the document, with the cost-effective method of doing it at query time. In WalkingRAG we also build one at ingest - this is something we can cover at a later time, as a way to tradeoff cost for better accuracy.
+
+# Conclusion
+
+The information we record as humans - in PDFs, text messages, excel sheets or books - is deeply interlinked, as much as we are. Nothing means much in isolation - and the first look at something usually isn't enough to get the full picture.
+
+Cycles - or walkingRAG, or agents, call it what we want - are a way to improve the complexity of questions that modern retrieval systems can handle. Some things I've left out for clarity - how we build the graph at ingest, transformations on input data (to be covered in a later article), and how cycle terminations are implemented.
+
+In the next part we'll cover how structure in your dataset is an untapped resource, and how to make use of it.
+
+---
+layout: post
+title: "Better RAG 3: The text is your friend"
+date: 2024-03-14 00:00:00
+image: "/images/posts/RAR2/cover.jpeg"
+description: "Use the whole brain, luke"
+tags:
+  - Series
+  - Large Language Models
+  - RAG
+  - Retrieval Augmented Generation
+  - WalkingRAG
+  - Retrieval Augmented Research
+categories:
+  - Large Language Models
+  - Retrieval Augmented Generation
+twitter_text: "Use the whole brain, luke"
+---
+
+import Callout from "../../components/postComponents/Callout";
+import { Tweet } from "mdx-embed";
+
+<Callout variant="info">
+This is part 3 of a series on Retrieval Augmented Research, or how to build better RAG systems to answer complex questions. [Part 1](/retrieval-augmented-research-1-basics) covers the basics and key concerns when building RAG systems, and [Part 2](/retrieval-augmented-research-2-walking) covers multi-turn retrieval, or 'walking'.
+
+In this part, we'll go over transformations that can be applied to your source data and the question, to improve retrieval.
+</Callout>
+
+A lot of RAG pipelines embody the paths their creators took to discovering embeddings - including mine - and a lot of us fall into the same trap.
+
+First, you find embeddings and leave the world of fuzzy search behind. Maybe you've heard of BM25, or perhaps Elastic or Postgres were the closest you had - but embeddings are great! True semantic search for the first time! Much like any addictive new tool you start to use and then overuse it.
+
+![catebola](/images/posts/RAR2/catebola.jpg)
+
+Before you know it you've embedded everything you can find, and you're retrieving too much. It works sometimes, and other times nothing works. Everything you search for has thousands of matches, and no amount of context will fit everything you can retrieve. Increasing flat embeddings with no real organization lands you back in fuzzy search territory, just with smarter models.
+
+You stop and look around - you have a lot of embeddings (some would say too many - I'm one of those people). The logical next step might be a [reranker](https://www.llamaindex.ai/blog/boosting-rag-picking-the-best-embedding-reranker-models-42d079022e83), or [some kind of bias matrix](https://github.com/openai/openai-cookbook/blob/main/examples/Customizing_embeddings.ipynb) to structure embeddings and search results.
+
+These are not bad things *per se* - rerankers and embedding transformations are incredibly useful *last* steps in your retrieval pipeline. They're just in the wrong place, in the wrong order.
+
+What if we started at the beginning?
+
+# Plaintext is your friend
+
+<Callout variant="info">
+I say text, but this applies to both multi-modal retrieval (images, video) and plaintext.
+</Callout>
+
+The source corpus - this can be your document store, images, PDFs, etc - is the most amount of useful information you'll have in your pipeline. Once we start embedding things, we lose information - often in uncontrollable ways.
+
+![embeddings](/images/posts/RAR2/embeddings.png)
+
+Which column do you think has more useful information, especially with LLMs as a tool?
+
+Once we begin chunking/embedding/applying matrices, we lose control and information at each stage. The first stage of any processing pipeline should be trying to transform and uncover information from your source document, with two primary goals.
+
+## Metadata Extraction
+
+The first is to pull out metadata that can help cut down the search space as much as possible before we get to semantic search. Even a single binary label applied to your chunks can halve your search, memory and computational complexity while doubling retrieval speed (and hopefully accuracy).
+
+<Callout variant="info">
+[Here's a GPT demonstrating naive structure retrieval](https://chat.openai.com/g/g-xZdVOvRUd-naive-structure-extractor) by building a real-time typespec and filling it with information.
+
+In fact, here's a [Huggingface Assistant](https://hf.co/chat/assistant/65eebeac44921d0d4c5beb72) running on Mixtral, a much smaller model - where you can inspect and edit the prompt!
+</Callout>
+
+Let's throw in our [first article from the series](/retrieval-augmented-research-1-basics) and see what we get:
+
+![hfassistantsmaller](/images/posts/RAR2/hfassistantsmaller.gif)
+
+All we're doing here is asking the model to create a dynamic typespec and fill it in. Even with this naive approach, we get a lot more we can work with:
+* the keywords can be used for simple classification.
+* implied structure can be correlated to query transformations.
+* summarised titles and summaries can serve as better embedding surface area to match your question.
+
+You also get steerability here - structured search can be modified, adjusted and fixed far easier than mucking about in n-dimensional embedding space.
+
+## Reducing the distance between questions and answers
+
+The second goal is to reduce the distance between your query and the relevant information inside your data. You might get lucky sometimes - your questions might come from the same authors as your documents, and they might be looking for simple, [single fact retrieval](/retrieval-augmented-research-1-basics#questioncomplexity).
+
+In most cases, you'll find that your questions look and sound nothing like the relevant answers. Transformations on both sides can help bring them closer together.
+
+Always remember that embeddings look for *simple* meanings and relationships. [SemanticFinder](https://do-me.github.io/SemanticFinder/) is a wonderful place to test the limits of embeddings. Smaller embedding models can be a great place to learn and firm up intuitions about semantic search, by pointing out issues early. Here's a question to try: *"How many people lived there at the end?"*
+
+![howmanypeople](/images/posts/RAR2/howmanypeople.png)
+
+In the ideal case, you should be transforming both your question and your corpus so they move closer to each other.
+
+![godandadam](/images/posts/RAR2/godandadam.jpg)
+
+This isn't a new concept - one of the most successful RAG techniques has been HyDE - [Hypothetical Document Embeddings](https://arxiv.org/abs/2212.10496), which tries to generate potential (fake) answers to the question, in the hopes that the embeddings of these answers match real answers more closely.
+
+You can also do the inverse. In WalkingRAG, one additional step we perform at ingest is to generate hypothetical questions that are answered by each section of a document. The embeddings of these questions are far closer to the actual user question than the source data - it's also a helpful multi-modal step, to generate text questions from purely visual information. More on that another time, but here's an example:
+
+<Tweet
+  tweetLink="hrishioa/status/1735711619588690382?s=20"
+  theme="dark"
+  align="center"
+/>
+
+<Callout variant="info">
+[Here is another example GPT](https://chat.openai.com/g/g-Va8Wd9Sqj-query-and-text-transformation-tests) to demonstrate some transformations. You can try your own documents, and potentially even plot the embeddings of the transformations to see how much closer they are to each other.
+</Callout>
+
+Let's try it out:
+
+![querytransformation](/images/posts/RAR2/querytransformation.gif)
+
+At the beginning of the response, we can see the hypothetical subquestions extracted from our simple question. Answering (or embedding) each of these can find disparate information buried in our dataset. On the other hand, we can see extracted facts and summaries that are more relevant to the question being asked.
+
+# A lot more to do
+
+Once you start using LLMs as transformation tools ahead of other steps, there starts to be a lot more you can do. For example, you can:
+
+1. Generate reasoning steps toward answering the question (without any chunks or documents in the context). The number of steps generated can be a useful proxy for judging question complexity, and the steps themselves can be useful retrievers to find relevant chunks.
+
+2. Annotate your document for ambiguity. For each chunk, generate potential web searches to retrieve more information. Even if you never run these searches, they become useful pointers to information that the model might be missing. You can also run the most common searches across the whole document and add the results to your dataset as supplemental information.
+
+3. [RAPTOR](https://twitter.com/hrishioa/status/1762919355803951344) and other methods point to recursive summarisation as a useful tool in boosting cross-dataset answering. Long-range summaries can connect information across wide-ranging chunks, and help in answering complex questions.
+
+# Conclusion
+
+I'm hoping this can be an open-ended series. There are a lot more concepts yet to be covered - from structured extraction, guided outputs, and using LLM contexts over a million tokens effectively. As language models and our understanding of embeddings evolve, we'll find new ways to improve knowledge organization and retrieval.
+
+In the meantime, here are some useful rules of thumb that have helped me:
+
+1. Keeping things simple can be very helpful, especially from a model perspective. It can be attractive to use multiple model architectures and complex prompt optimization pipelines - and often they can net you an additional percent or two in accuracy. However, keep an eye on the tradeoff you might be making in terms of complexity and maintainability. The more black-box ML that you add to a pipeline, the harder it becomes to upgrade, maintain and control.
+2. When building a new system, start from the query in. Understand the class of questions your system will be expected to answer, and line up expectations with customers, users and yourself. It can be tempting to build general-purpose - modern AI systems feel like they're 'almost there' in being able to tackle anything and everything. However, a lack of definition of the problem space can often mean that you're unaware of the tradeoffs being made.
+3. Separate the work being done at query time from what you do on ingest. In an ideal system, you should be doing things in both places - and being aware of the fact that your information set changes between ingest and query can make a big difference.
+
+I hope this has been helpful. If you have any questions or comments, feel free to reach out to me on [Twitter](https://twitter.com/hrishioa).
