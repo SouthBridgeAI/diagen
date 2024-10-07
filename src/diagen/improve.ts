@@ -2,6 +2,7 @@ import ora from "ora";
 import { SupportedModel, Message, CritiqueHistoryItem } from "../types";
 import { callAIStream } from "../utils/ai-adapters";
 import { cleanDiagramWithTip20 } from "../utils/helpers";
+import { reflectionPrompt } from "./prompts";
 
 export async function improveDiagramWithCritique(
   diagramCode: string,
@@ -14,13 +15,6 @@ export async function improveDiagramWithCritique(
   inputData?: string,
   critiqueHistory?: CritiqueHistoryItem[]
 ) {
-  // prettier-ignore
-  const reflectionPrompt = (typeofDiagram: string, critique: string, diagramCode?: string,inputData?: string) =>
-`${inputData ? `DATA: \n\`\`\`${inputData}\`\`\`\n` : ""}${diagramCode? `DIAGRAM: \n\n\`\`\`d2\n${diagramCode}\n\`\`\`\n`: ""}Areas to improve:\n\`\`\`\n${critique}\n\`\`\`
-${diagramCode ? `Provided is a d2 ${typeofDiagram} diagram` : 'Here are more suggestions.'}${inputData ? " generated from DATA" : ""}. Apply the critiques when possible to improve the diagram but don't make it too complex. Explain very shortly how you will improve, then generate and return the improved d2 diagram code.`;
-
-  console.log("Critique history: ", critiqueHistory);
-
   const messages: Message[] = [];
 
   critiqueHistory?.forEach((hCritique, index) => {

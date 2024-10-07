@@ -14,7 +14,7 @@ export async function render(
   diagramId: string,
   tempDir: string,
   saveLogStep?: (step: any) => void,
-  timeoutMs: number = 10000
+  timeoutMs: number = 20000
 ): Promise<RenderResult> {
   const diagramsDir = path.join(tempDir, "diagrams");
   if (!fs.existsSync(diagramsDir)) {

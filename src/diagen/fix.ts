@@ -10,6 +10,7 @@ import { render } from "./render";
 import fs from "fs";
 import path from "path";
 import ora from "ora";
+import { fixPrompt } from "./prompts";
 
 type FixResult =
   | {
@@ -24,19 +25,6 @@ type FixResult =
       diagramCode: string;
       fixAttempts: number;
     };
-
-const fixPrompt = (errors: string, diagramCode: string) =>
-  `DIAGRAM (with line numbers):
-\`\`\`d2
-${lineTag(diagramCode)}
-\`\`\`
-
-Errors in diagram code:
-\`\`\`
-${errors}
-\`\`\`
-
-Explain why the errors are happening. Then fix the errors in the d2 diagram code provided, and return the fixed code. Keep an eye out for recurring errors and try new fixes.`;
 
 export async function checkAndFixDiagram(
   model: SupportedModel,
@@ -92,6 +80,7 @@ export async function checkAndFixDiagram(
             content: fixPrompt(attempt.errors, initialDiagramCode),
           });
         } else {
+          // TODO: Move this prompt out and join it with the other one like we do in visualReflect
           messages.push({
             role: "user",
             content: `The previous fix attempt resulted in the following errors:\n\`\`\`\n${attempt.errors}\n\`\`\`\nPlease fix these errors in the previously provided diagram.`,

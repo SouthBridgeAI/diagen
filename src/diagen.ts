@@ -134,26 +134,13 @@ export async function diagen(
 
       run.rounds[critiqueRound].finalDiagramCode = diagramCheck.diagramCode;
 
-      const renderResult = await render(
-        diagramCheck.d2file,
-        diagramId,
-        tempDir,
-        saveLogStep
-      );
-
-      if (!renderResult.success) {
-        run.rounds[critiqueRound].failureReason = renderResult.err;
-        saveLogStep();
-        break;
-      }
-
       run.rounds[critiqueRound].renderedDiagramFilename =
-        renderResult.filename!;
+        diagramCheck.outputImage;
 
       if (critiqueRound === maxCritiqueRounds) break;
 
       const critique = await visualReflect(
-        renderResult.filename!,
+        diagramCheck.outputImage,
         critiqueModel,
         "information flow",
         provideDataForCritique ? data : undefined

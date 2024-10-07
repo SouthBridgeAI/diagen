@@ -12,12 +12,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs";
 import { ImageBlockParam, TextBlockParam } from "@anthropic-ai/sdk/resources";
 import { isClaudeModel } from "../utils/helpers";
-
-const critiquePrompt = (typeofDiagram: string, inputData?: string) =>
-  (inputData ? `DATA: \n\`\`\`${inputData}\`\`\`\n` : "") +
-  `Critique the provided ${typeofDiagram}${
-    inputData ? " for the DATA" : ""
-  }, including style, positioning, etc. Provide just the actionable critiques (relevant to the diagram) and ways to improve and simplify, while covering what is useful to keep. Stay within what d2 can do. Stay away from vague criticisms, provide actionable changes, even suggest direct changes to the diagram. Suggest removing things that make the diagram too cluttered. Dont' ask to add a legend.`;
+import { critiquePrompt } from "./prompts";
 
 export async function visualReflect(
   diagramLocation: string,
@@ -71,6 +66,8 @@ export async function visualReflectWithGemini(
   });
 
   uploadSpinner.succeed(`Diagram uploaded as ${uploadResult.file.uri}`);
+
+  fs.rmSync(resizedImage);
 
   const model = genAI.getGenerativeModel({ model: modelName });
 
@@ -134,6 +131,8 @@ export async function visualReflectWithClaude(
   const resizedImage = await resizeAndSaveImage(diagramLocation, 1092, 1092);
 
   const imageData = fs.readFileSync(resizedImage, { encoding: "base64" });
+
+  fs.rmSync(resizedImage);
 
   const messageContent: (TextBlockParam | ImageBlockParam)[] = [
     {
