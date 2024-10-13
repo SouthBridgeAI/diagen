@@ -5,7 +5,7 @@ export const critiquePrompt = (typeofDiagram: string, inputData?: string) =>
 (inputData ? `DATA: \n\`\`\`${inputData}\`\`\`\n` : "") +
 `Critique the provided ${typeofDiagram}${
   inputData ? " for the DATA" : ""
-}, including style, positioning, etc. Provide just the actionable critiques (relevant to the diagram) and ways to improve and simplify, while covering what is useful to keep. Stay within what d2 can do. Stay away from vague criticisms, provide actionable changes, even suggest direct changes to the diagram. Suggest removing things if the diagram is too cluttered. Dont' ask to add a legend.`;
+}, including style, positioning, etc. Provide just the actionable critiques (relevant to the diagram) and ways to improve and simplify, while covering what is useful to keep. Stay within what d2 can do. Stay away from vague criticisms, provide actionable changes, even suggest direct changes to the diagram. Too many disparate unconnected blocks aren't good. Dont' ask to add a legend.`;
 
 // prettier-ignore
 export const fixPrompt = (errors: string, diagramCode: string) =>
@@ -26,7 +26,7 @@ export const generationPrompt = (data: string, dataDesc: string, typeofDiagram: 
 `DATA:\n\`\`\`\n${data}\n\`\`\`\n
 INSTRUCTION: Data is ${dataDesc}. Generate a landscape (left to right preferred) d2 diagram code (in d2 markdown blocks) for the DATA provided, covering ${typeofDiagram}. 1. Feel free to be creative
 2. Provide a single diagram only, with good visual design. 3. Make sure the code is for d2 and not mermaid.
-4. Keep it simple when possible.
+4. Keep it simple when possible. Too many disparate unconnected blocks aren't good.
 5. Don't make legends and remove any that exist.`;
 
 // prettier-ignore

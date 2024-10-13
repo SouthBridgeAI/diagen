@@ -1,5 +1,4 @@
 import { v4 as uuidv4 } from "uuid";
-import fs from "fs";
 import path from "path";
 import {
   ClaudeModel,
@@ -8,12 +7,16 @@ import {
   GeminiModel,
   SupportedModel,
 } from "./types";
-import { createTempDir, isClaudeModel, writeToFile } from "./utils/helpers";
+import {
+  checkModelAuthExists,
+  createTempDir,
+  isCommandAvailable,
+  writeToFile,
+} from "./utils/helpers";
 import { generateDiagram } from "./diagen/generate";
 import { checkAndFixDiagram } from "./diagen/fix";
-import { visualReflect, visualReflectWithClaude } from "./diagen/visualReflect";
+import { visualReflect } from "./diagen/visualReflect";
 import { improveDiagramWithCritique } from "./diagen/improve";
-import { render } from "./diagen/render";
 
 interface DiagramRun {
   id: string;
@@ -41,10 +44,25 @@ interface DiagramRound {
   timeTaken: number;
 }
 
+/**
+ *
+ * @param data Large string data to use as the primary source for generating the diagram.
+ * @param dataDesc Description of the data (few words up to a sentence).
+ * @param diagramDesc Description of diagram to be generated.
+ * @param generationModel Model to use to generate diagrams.
+ * @param fixModel Model to use to fix broken diagrams. Claude sonnet recommended.
+ * @param critiqueModel Model to use to do visual reflection to improve diagrams.
+ * @param maxFixSteps Number of attempts allowed to fix broken diagrams.
+ * @param maxCritiqueRounds Number of rounds of reflection to improve diagrams.
+ * @param provideFixHistory Enable this to allow the model to remember previous attempts to fix diagrams.
+ * @param provideCritiqueHistory Enable this to allow the model to remember previous attempts to improve diagrams.
+ * @param provideDataForCritique Enable this to allow the model to use the data to improve diagrams. Increasers cost but improves results.
+ * @param injectTempDir Custom directory to use for temporary files. If not provided, a temporary directory will be created.
+ */
 export async function diagen(
   data: string,
   dataDesc: string,
-  typeofDiagram: string,
+  diagramDesc: string,
   generationModel: SupportedModel,
   fixModel: SupportedModel,
   critiqueModel: ClaudeModel | GeminiModel,
@@ -55,6 +73,18 @@ export async function diagen(
   provideDataForCritique: boolean = false,
   injectTempDir?: string
 ) {
+  checkModelAuthExists(generationModel);
+  checkModelAuthExists(fixModel);
+  checkModelAuthExists(critiqueModel);
+
+  const d2IsAvailable = await isCommandAvailable("d2");
+
+  if (!d2IsAvailable) {
+    throw new Error(
+      "d2 is not available on your system. Please install it from https://d2lang.com/tour/install/"
+    );
+  }
+
   const runId = uuidv4().slice(0, 8);
   const tempDir = injectTempDir || createTempDir();
   const logFilename = path.join(tempDir, `${runId}_log.json`);
@@ -86,7 +116,7 @@ export async function diagen(
     const initialDiagram = await generateDiagram(
       data,
       dataDesc,
-      typeofDiagram,
+      diagramDesc,
       generationModel,
       tempDir,
       saveLogStep
@@ -153,7 +183,7 @@ export async function diagen(
         diagramCheck.diagramCode,
         critique,
         diagramId,
-        typeofDiagram,
+        diagramDesc,
         generationModel,
         tempDir,
         saveLogStep,
@@ -204,44 +234,6 @@ export async function diagen(
     }
     console.log(`  Rendered diagram: ${round.renderedDiagramFilename}`);
   });
-}
 
-// (async () => {
-//   // const data2 = fs.readFileSync("./tests/introducing-rakis.mdx", "utf8");
-//   // await diagen(
-//   //   data2,
-//   //   "Article about a project called Rakis",
-//   //   "Architecture, key components and flow",
-//   //   // "gpt-4o",
-//   //   // "gemini-1.5-pro-002",
-//   //   "gemini-1.5-flash-8b",
-//   //   "claude-3-5-sonnet-20240620",
-//   //   // "gpt-4o-mini",
-//   //   // "gemini-1.5-flash",
-//   //   "claude-3-haiku-20240307",
-//   //   6,
-//   //   5,
-//   //   true,
-//   //   true,
-//   //   true
-//   // );
-//   // const data = fs.readFileSync("./tests/compiled-code.txt", "utf8");
-//   // await diagen(
-//   //   data,
-//   //   "Codebase for a project called mandark",
-//   //   "code structure and key components",
-//   //   // "gpt-4o",
-//   //   "claude-3-5-sonnet-20240620",
-//   //   // "gpt-4o-mini",
-//   //   // "claude-3-haiku-20240307",
-//   //   // "gemini-1.5-flash-8b",
-//   //   // "gemini-1.5-flash",
-//   //   "gemini-1.5-pro-exp-0827",
-//   //   // "claude-3-haiku-20240307",
-//   //   // "claude-3-5-sonnet-20240620",
-//   //   6,
-//   //   2,
-//   //   true,
-//   //   true
-//   // );
-// })();
+  return run;
+}

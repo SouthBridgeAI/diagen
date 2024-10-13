@@ -8,6 +8,7 @@ import {
 } from "../types";
 import ora from "ora";
 import { tip20streaming } from "tip20";
+import { exec } from "child_process";
 
 export function lineTag(input: string): string {
   // Split the input string into an array of lines
@@ -56,6 +57,30 @@ export const isClaudeModel = (model: SupportedModel): model is ClaudeModel => {
 
 export const isGeminiModel = (model: SupportedModel): model is GeminiModel => {
   return typeof model === "string" && model.startsWith("gemini-");
+};
+
+export function isCommandAvailable(command: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    exec(`command -v ${command}`, (error) => {
+      resolve(!error);
+    });
+  });
+}
+
+export const checkModelAuthExists = (model: SupportedModel) => {
+  if (isClaudeModel(model) && !process.env.ANTHROPIC_API_KEY) {
+    throw new Error(
+      `ANTHROPIC_API_KEY is not set in the environment variables. Please set it to use ${model}.`
+    );
+  } else if (isGeminiModel(model) && !process.env.GEMINI_API_KEY) {
+    throw new Error(
+      `GEMINI_API_KEY is not set in the environment variables. Please set it to use ${model}.`
+    );
+  } else if (isOpenAIModel(model) && !process.env.OPENAI_API_KEY) {
+    throw new Error(
+      `OPENAI_API_KEY is not set in the environment variables. Please set it to use ${model}.`
+    );
+  }
 };
 
 export async function cleanDiagramWithTip20(

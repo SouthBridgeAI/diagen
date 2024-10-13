@@ -1,18 +1,17 @@
 .diagen
 
+archive
+tests
+
 .DS_Store
 zig-cache
 packages/*/*.wasm
 *.o
 *.a
 profile.json
-dist
-
-mandark-history.json
-compiled-code.txt
 
 study
-
+.diagen
 
 .env
 node_modules
@@ -132,8 +131,6 @@ myscript.sh
 cold-jsc-start
 cold-jsc-start.d
 
-bun.lockb
-
 /testdir
 /test.ts
 /test.js
@@ -179,3 +176,5 @@ x64
 /test-report.json
 
 ########################### MY STUFF
+
+tests
