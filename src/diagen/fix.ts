@@ -33,12 +33,15 @@ export async function checkAndFixDiagram(
   fixRounds: number,
   tempDir: string,
   provideFixHistory: boolean = false,
-  saveFixAttempt: (fixAttempt: FixAttempt) => void
+  saveFixAttempt: (fixAttempt: FixAttempt) => void,
+  silent: boolean = true
 ): Promise<FixResult> {
   const fixHistory: FixAttempt[] = [];
   const initialDiagramCode = fs.readFileSync(diagramFilename, "utf-8");
 
-  const checkSpinner = ora(`Checking diagram (${diagramId})`).start();
+  const checkSpinner = silent
+    ? null
+    : ora(`Checking diagram (${diagramId})`).start();
 
   const initialRenderResult = await render(
     diagramFilename,
@@ -47,7 +50,8 @@ export async function checkAndFixDiagram(
   );
 
   if (initialRenderResult.success && initialRenderResult.filename) {
-    checkSpinner.succeed(`Diagram rendered successfully (${diagramId})`);
+    if (checkSpinner)
+      checkSpinner.succeed(`Diagram rendered successfully (${diagramId})`);
     return {
       success: true,
       d2file: diagramFilename,
@@ -57,7 +61,8 @@ export async function checkAndFixDiagram(
     };
   }
 
-  checkSpinner.fail(`Rendering failed (${diagramId}), trying to fix...`);
+  if (checkSpinner)
+    checkSpinner.fail(`Rendering failed (${diagramId}), trying to fix...`);
 
   let latestDiagramCode = initialDiagramCode;
   let fixAttempts = 0;
@@ -66,9 +71,9 @@ export async function checkAndFixDiagram(
     fixAttempts++;
     const fixDiagramId = `${diagramId}_fixed_${i.toString().padStart(2, "0")}`;
 
-    const fixSpinner = ora(
-      `Fixing diagram (${diagramId}), try ${i + 1}`
-    ).start();
+    const fixSpinner = silent
+      ? null
+      : ora(`Fixing diagram (${diagramId}), try ${i + 1}`).start();
 
     let messages: Message[] = [];
 
@@ -114,7 +119,7 @@ export async function checkAndFixDiagram(
       model,
       messages,
       undefined,
-      tempDir,
+      path.join(tempDir, "prompts"),
       fixDiagramId
     );
 
@@ -124,10 +129,12 @@ export async function checkAndFixDiagram(
     for await (const token of stream) {
       response += token;
       tokenCount++;
-      fixSpinner.text = `Fixing diagram errors (${tokenCount} tokens)`;
+      if (fixSpinner)
+        fixSpinner.text = `Fixing diagram errors (${tokenCount} tokens)`;
     }
 
-    fixSpinner.succeed(`New diagram generated with fixes for (${diagramId})`);
+    if (fixSpinner)
+      fixSpinner.succeed(`New diagram generated with fixes for (${diagramId})`);
 
     response = removeLineTag(response);
 
@@ -140,7 +147,9 @@ export async function checkAndFixDiagram(
     const latestDiagramFilename = path.join(tempDir, `${fixDiagramId}.d2`);
     writeToFile(latestDiagramFilename, latestDiagramCode);
 
-    const renderSpinner = ora(`Checking diagram (${fixDiagramId})`).start();
+    const renderSpinner = silent
+      ? null
+      : ora(`Checking diagram (${fixDiagramId})`).start();
 
     const renderResult = await render(
       latestDiagramFilename,
@@ -149,7 +158,10 @@ export async function checkAndFixDiagram(
     );
 
     if (renderResult.success && renderResult.filename) {
-      renderSpinner.succeed(`Diagram rendered successfully (${fixDiagramId})`);
+      if (renderSpinner)
+        renderSpinner.succeed(
+          `Diagram rendered successfully (${fixDiagramId})`
+        );
       return {
         success: true,
         d2file: latestDiagramFilename,
@@ -159,7 +171,8 @@ export async function checkAndFixDiagram(
       };
     }
 
-    renderSpinner.fail(`Rendering failed for ${fixDiagramId})`);
+    if (renderSpinner)
+      renderSpinner.fail(`Rendering failed for ${fixDiagramId})`);
 
     const fixAttempt: FixAttempt = {
       diagramCode: latestDiagramCode,

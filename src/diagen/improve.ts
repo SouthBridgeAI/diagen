@@ -3,6 +3,7 @@ import { SupportedModel, Message, CritiqueHistoryItem } from "../types";
 import { callAIStream } from "../utils/ai-adapters";
 import { cleanDiagramWithTip20 } from "../utils/helpers";
 import { reflectionPrompt } from "./prompts";
+import path from "path";
 
 export async function improveDiagramWithCritique(
   diagramCode: string,
@@ -13,7 +14,8 @@ export async function improveDiagramWithCritique(
   tempDir: string,
   saveLogStep?: (step: any) => void,
   inputData?: string,
-  critiqueHistory?: CritiqueHistoryItem[]
+  critiqueHistory?: CritiqueHistoryItem[],
+  silent: boolean = true
 ) {
   const messages: Message[] = [];
 
@@ -58,13 +60,15 @@ export async function improveDiagramWithCritique(
     });
   }
 
-  const critiqueSpinner = ora("Improving diagram with critique").start();
+  const critiqueSpinner = silent
+    ? null
+    : ora("Improving diagram with critique").start();
 
   const stream = await callAIStream(
     model,
     messages,
     undefined,
-    tempDir,
+    path.join(tempDir, "prompts"),
     `critique_improvement_${id}`
   );
 
@@ -74,7 +78,8 @@ export async function improveDiagramWithCritique(
   for await (const token of stream) {
     response += token;
     tokenCount++;
-    critiqueSpinner.text = `Improving diagram with critique (${tokenCount} tokens)`;
+    if (critiqueSpinner)
+      critiqueSpinner.text = `Improving diagram with critique (${tokenCount} tokens)`;
   }
 
   if (saveLogStep)
@@ -85,7 +90,8 @@ export async function improveDiagramWithCritique(
       model: model,
     });
 
-  critiqueSpinner.succeed("New diagram generated from critique");
+  if (critiqueSpinner)
+    critiqueSpinner.succeed("New diagram generated from critique");
 
   const cleanedDiagram = await cleanDiagramWithTip20(
     response,

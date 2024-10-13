@@ -156,6 +156,8 @@ CMakeCache.txt
 cmake_install.cmake
 compile_commands.json
 
+compiled-code.txt
+
 *.lib
 x64
 **/*.vcxproj*

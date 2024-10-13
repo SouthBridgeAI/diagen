@@ -20,7 +20,8 @@ export async function visualReflect(
   modelName: string,
   typeofDiagram: string,
   inputData?: string,
-  retries: number = 1
+  retries: number = 1,
+  silent: boolean = true
 ): Promise<string> {
   if (isClaudeModel(modelName))
     return visualReflectWithClaude(
@@ -28,7 +29,8 @@ export async function visualReflect(
       modelName,
       typeofDiagram,
       inputData,
-      retries
+      retries,
+      silent
     );
   else
     return visualReflectWithGemini(
@@ -36,7 +38,8 @@ export async function visualReflect(
       modelName,
       typeofDiagram,
       inputData,
-      retries
+      retries,
+      silent
     );
 }
 
@@ -45,7 +48,8 @@ export async function visualReflectWithGemini(
   modelName: string,
   typeofDiagram: string,
   inputData?: string,
-  retries: number = 1
+  retries: number = 1,
+  silent: boolean = true
 ): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
 
@@ -58,7 +62,7 @@ export async function visualReflectWithGemini(
 
   const resizedImage = await resizeAndSaveImage(diagramLocation, 3072, 3072);
 
-  const uploadSpinner = ora("Uploading diagram").start();
+  const uploadSpinner = silent ? null : ora("Uploading diagram").start();
 
   // Upload the file
   const uploadResult = await fileManager.uploadFile(resizedImage, {
@@ -66,7 +70,8 @@ export async function visualReflectWithGemini(
     mimeType: "image/png",
   });
 
-  uploadSpinner.succeed(`Diagram uploaded as ${uploadResult.file.uri}`);
+  if (uploadSpinner)
+    uploadSpinner.succeed(`Diagram uploaded as ${uploadResult.file.uri}`);
 
   fs.rmSync(resizedImage);
 
@@ -79,7 +84,7 @@ export async function visualReflectWithGemini(
     maxOutputTokens: 8192,
   };
 
-  const spinner = ora("Getting feedback on diagram").start();
+  const spinner = silent ? null : ora("Getting feedback on diagram").start();
   try {
     const chatSession = model.startChat({
       generationConfig,
@@ -101,13 +106,14 @@ export async function visualReflectWithGemini(
       },
     ]);
 
-    spinner.succeed("Got feedback on diagram");
+    if (spinner) spinner.succeed("Got feedback on diagram");
 
     return result.response.text();
   } catch (err) {
     console.error(err);
 
-    spinner.fail(`Failed to get feedback on diagram, retries - ${retries}`);
+    if (spinner)
+      spinner.fail(`Failed to get feedback on diagram, retries - ${retries}`);
 
     if (retries == 1) throw err;
     return await visualReflect(
@@ -125,7 +131,8 @@ export async function visualReflectWithClaude(
   modelName: ClaudeModel,
   typeofDiagram: string,
   inputData?: string,
-  retries: number = 1
+  retries: number = 1,
+  silent: boolean = true
 ): Promise<string> {
   const client = new Anthropic();
 
@@ -151,7 +158,9 @@ export async function visualReflectWithClaude(
     },
   });
 
-  const spinner = ora(`Getting feedback on diagram from ${modelName}`).start();
+  const spinner = silent
+    ? null
+    : ora(`Getting feedback on diagram from ${modelName}`).start();
 
   try {
     const response = await client.messages.create({
@@ -166,7 +175,7 @@ export async function visualReflectWithClaude(
       ],
     });
 
-    spinner.succeed("Got feedback on diagram");
+    if (spinner) spinner.succeed("Got feedback on diagram");
 
     return response.content
       .filter((content) => content.type === "text")
@@ -175,7 +184,8 @@ export async function visualReflectWithClaude(
   } catch (err) {
     console.error(err);
 
-    spinner.fail(`Failed to get feedback on diagram, retries - ${retries}`);
+    if (spinner)
+      spinner.fail(`Failed to get feedback on diagram, retries - ${retries}`);
 
     if (retries == 1) throw err;
     return await visualReflect(

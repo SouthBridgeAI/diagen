@@ -3,6 +3,7 @@ import path from "path";
 import {
   ClaudeModel,
   CritiqueHistoryItem,
+  DiagramRun,
   FixAttempt,
   GeminiModel,
   SupportedModel,
@@ -17,32 +18,8 @@ import { generateDiagram } from "./diagen/generate";
 import { checkAndFixDiagram } from "./diagen/fix";
 import { visualReflect } from "./diagen/visualReflect";
 import { improveDiagramWithCritique } from "./diagen/improve";
-
-interface DiagramRun {
-  id: string;
-  config: {
-    generationModel: SupportedModel;
-    critiqueModel: string;
-    maxFixSteps: number;
-    maxCritiqueRounds: number;
-    provideFixHistory: boolean;
-    provideCritiqueHistory: boolean;
-    provideDataForCritique: boolean;
-  };
-  rounds: DiagramRound[];
-  totalTime: number;
-}
-
-interface DiagramRound {
-  critiqueNumber: number;
-  initialDiagramCode: string;
-  fixes: FixAttempt[];
-  finalDiagramCode: string;
-  renderedDiagramFilename: string;
-  critique?: string;
-  failureReason?: string;
-  timeTaken: number;
-}
+import open from "open";
+import fs from "fs";
 
 /**
  *
@@ -58,6 +35,8 @@ interface DiagramRound {
  * @param provideCritiqueHistory Enable this to allow the model to remember previous attempts to improve diagrams.
  * @param provideDataForCritique Enable this to allow the model to use the data to improve diagrams. Increasers cost but improves results.
  * @param injectTempDir Custom directory to use for temporary files. If not provided, a temporary directory will be created.
+ * @param openDiagrams Enable this to open the diagrams after they're generated.
+ * @param silent Enable this to disable all console spinners and logs.
  */
 export async function diagen(
   data: string,
@@ -71,7 +50,9 @@ export async function diagen(
   provideFixHistory: boolean = false,
   provideCritiqueHistory: boolean = false,
   provideDataForCritique: boolean = false,
-  injectTempDir?: string
+  injectTempDir?: string,
+  openDiagrams: boolean = false,
+  silent: boolean = true
 ) {
   checkModelAuthExists(generationModel);
   checkModelAuthExists(fixModel);
@@ -89,7 +70,9 @@ export async function diagen(
   const tempDir = injectTempDir || createTempDir();
   const logFilename = path.join(tempDir, `${runId}_log.json`);
 
-  console.log("Saving outputs to ", tempDir);
+  if (!fs.existsSync(path.join(tempDir, "prompts"))) {
+    fs.mkdirSync(path.join(tempDir, "prompts"), { recursive: true });
+  }
 
   const run: DiagramRun = {
     id: runId,
@@ -101,6 +84,7 @@ export async function diagen(
       provideFixHistory,
       provideCritiqueHistory,
       provideDataForCritique,
+      outputDir: tempDir,
     },
     rounds: [],
     totalTime: 0,
@@ -119,7 +103,8 @@ export async function diagen(
       diagramDesc,
       generationModel,
       tempDir,
-      saveLogStep
+      saveLogStep,
+      silent
     );
 
     let currentDiagramFilename = path.join(tempDir, "initial_diagram.d2");
@@ -154,7 +139,8 @@ export async function diagen(
         (fixAttempt: FixAttempt) => {
           run.rounds[critiqueRound].fixes.push(fixAttempt);
           saveLogStep();
-        }
+        },
+        silent
       );
 
       if (!diagramCheck || !diagramCheck.success || !diagramCheck.d2file) {
@@ -168,13 +154,21 @@ export async function diagen(
       run.rounds[critiqueRound].renderedDiagramFilename =
         diagramCheck.outputImage;
 
+      if (openDiagrams) {
+        try {
+          open(diagramCheck.outputImage);
+        } catch (Err) {}
+      }
+
       if (critiqueRound === maxCritiqueRounds) break;
 
       const critique = await visualReflect(
         diagramCheck.outputImage,
         critiqueModel,
         "information flow",
-        provideDataForCritique ? data : undefined
+        provideDataForCritique ? data : undefined,
+        1,
+        silent
       );
 
       run.rounds[critiqueRound].critique = critique;
@@ -188,7 +182,8 @@ export async function diagen(
         tempDir,
         saveLogStep,
         provideDataForCritique ? data : undefined,
-        provideCritiqueHistory ? critiqueHistory : undefined
+        provideCritiqueHistory ? critiqueHistory : undefined,
+        silent
       );
 
       critiqueHistory.push(newDiagram.critique);
@@ -217,23 +212,25 @@ export async function diagen(
   saveLogStep();
 
   // Pretty print results
-  console.log("\nDiagram Generation Results:");
-  console.log("---------------------------");
-  console.log(`Run ID: ${run.id}`);
-  console.log(`Total time: ${run.totalTime}ms`);
-  console.log("\nConfig:");
-  console.log(JSON.stringify(run.config, null, 2));
-  console.log("\nRounds:");
-  run.rounds.forEach((round, index) => {
-    console.log(`\nRound ${index + 1}:`);
-    console.log(`  Critique number: ${round.critiqueNumber}`);
-    console.log(`  Number of fixes: ${round.fixes.length}`);
-    console.log(`  Time taken: ${round.timeTaken}ms`);
-    if (round.failureReason) {
-      console.log(`  Failure reason: ${round.failureReason}`);
-    }
-    console.log(`  Rendered diagram: ${round.renderedDiagramFilename}`);
-  });
+  if (!silent) {
+    console.log("\nDiagram Generation Results:");
+    console.log("---------------------------");
+    console.log(`Run ID: ${run.id}`);
+    console.log(`Total time: ${run.totalTime}ms`);
+    console.log("\nConfig:");
+    console.log(JSON.stringify(run.config, null, 2));
+    console.log("\nRounds:");
+    run.rounds.forEach((round, index) => {
+      console.log(`\nRound ${index + 1}:`);
+      console.log(`  Critique number: ${round.critiqueNumber}`);
+      console.log(`  Number of fixes: ${round.fixes.length}`);
+      console.log(`  Time taken: ${round.timeTaken}ms`);
+      if (round.failureReason) {
+        console.log(`  Failure reason: ${round.failureReason}`);
+      }
+      console.log(`  Rendered diagram: ${round.renderedDiagramFilename}`);
+    });
+  }
 
   return run;
 }

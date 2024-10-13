@@ -8,6 +8,9 @@
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
+  "bin": {
+    "diagen": "./dist/run.js"
+  },
   "devDependencies": {
     "@swc/core": "^1.7.26",
     "@types/bun": "^1.1.10",
@@ -34,17 +37,20 @@
   ],
   "license": "Apache-2.0",
   "scripts": {
-    "build": "tsup && tsc --emitDeclarationOnly --declaration --declarationDir dist && mv dist/index.d.ts dist/index.d.mts && cp dist/index.d.mts dist/index.d.cts"
+    "build": "tsup src/index.ts src/run.ts --format cjs,esm --dts && tsc --emitDeclarationOnly && tsc --emitDeclarationOnly --declaration --declarationDir dist && mv dist/index.d.ts dist/index.d.mts && cp dist/index.d.mts dist/index.d.cts"
   },
   "type": "module",
   "types": "./dist/index.d.cts",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.28.0",
+    "@anthropic-ai/tokenizer": "^0.0.4",
     "@google/generative-ai": "^0.21.0",
+    "@inquirer/prompts": "^7.0.0",
     "@types/glob": "^8.1.0",
     "cli-progress": "^3.12.0",
     "dotenv": "^16.4.5",
     "glob": "^11.0.0",
+    "open": "^10.1.0",
     "openai": "^4.67.1",
     "ora": "^8.1.0",
     "sharp": "^0.33.5",

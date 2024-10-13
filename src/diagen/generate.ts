@@ -3,6 +3,7 @@ import { SupportedModel } from "../types";
 import { callAIStream } from "../utils/ai-adapters";
 import { cleanDiagramWithTip20 } from "../utils/helpers";
 import { generationPrompt } from "./prompts";
+import path from "path";
 
 export async function generateDiagram(
   data: string,
@@ -10,7 +11,8 @@ export async function generateDiagram(
   typeofDiagram: string,
   model: SupportedModel,
   tempDir: string,
-  saveLogStep?: (step: any) => void
+  saveLogStep?: (step: any) => void,
+  silent: boolean = true
 ) {
   let stream = await callAIStream(
     model,
@@ -21,11 +23,11 @@ export async function generateDiagram(
       },
     ],
     "You are a D2 diagram generator that can create beautiful and expressive d2 diagrams.",
-    tempDir,
+    path.join(tempDir, "prompts"),
     "initial_diagram"
   );
 
-  const spinner = ora("Generating diagram").start();
+  const spinner = silent ? null : ora("Generating diagram").start();
 
   let response = "";
   let tokenCount = 0;
@@ -33,18 +35,19 @@ export async function generateDiagram(
   for await (const token of stream) {
     response += token;
     tokenCount++;
-    spinner.text = `Generating diagram (${tokenCount} tokens)`;
+    if (spinner) spinner.text = `Generating diagram (${tokenCount} tokens)`;
   }
 
   if (saveLogStep)
     saveLogStep({ type: "diagram_generated", diagram: response, model: model });
 
-  spinner.succeed("Diagram generated");
+  if (spinner) spinner.succeed("Diagram generated");
 
   // Clean the generated diagram
   const cleanedDiagram = await cleanDiagramWithTip20(
     response,
-    "claude-3-haiku-20240307"
+    "claude-3-haiku-20240307",
+    silent
   );
 
   if (saveLogStep)

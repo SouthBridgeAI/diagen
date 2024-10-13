@@ -110,8 +110,6 @@ export const claudeAdapter = {
   },
 };
 
-// TODO: Make sure we translate system prompts properly
-// TODO: Actually process the streams properly
 export async function* callAIStream(
   model: SupportedModel,
   messages: Message[],

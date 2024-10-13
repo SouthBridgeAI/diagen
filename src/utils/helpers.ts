@@ -69,25 +69,34 @@ export function isCommandAvailable(command: string): Promise<boolean> {
 
 export const checkModelAuthExists = (model: SupportedModel) => {
   if (isClaudeModel(model) && !process.env.ANTHROPIC_API_KEY) {
-    throw new Error(
-      `ANTHROPIC_API_KEY is not set in the environment variables. Please set it to use ${model}.`
+    console.error(
+      `ANTHROPIC_API_KEY is not set in the environment variables. Please set it (export ANTHROPIC_API_KEY=...) to use ${model}.`
     );
+
+    return false;
   } else if (isGeminiModel(model) && !process.env.GEMINI_API_KEY) {
-    throw new Error(
-      `GEMINI_API_KEY is not set in the environment variables. Please set it to use ${model}.`
+    console.error(
+      `GEMINI_API_KEY is not set in the environment variables. Please set it (export GEMINI_API_KEY=...) to use ${model}.`
     );
+
+    return false;
   } else if (isOpenAIModel(model) && !process.env.OPENAI_API_KEY) {
-    throw new Error(
-      `OPENAI_API_KEY is not set in the environment variables. Please set it to use ${model}.`
+    console.error(
+      `OPENAI_API_KEY is not set in the environment variables. Please set it (export OPENAI_API_KEY=...) to use ${model}.`
     );
+
+    return false;
   }
+
+  return true;
 };
 
 export async function cleanDiagramWithTip20(
   diagramCode: string,
-  modelName: string
+  modelName: string,
+  silent: boolean = true
 ): Promise<string> {
-  const spinner = ora("Cleaning diagram with tip20").start();
+  const spinner = silent ? null : ora("Cleaning diagram with tip20").start();
   let cleanedDiagram = "",
     tokenCount = 0;
 
@@ -103,14 +112,15 @@ export async function cleanDiagramWithTip20(
       if (packet.type === "token") {
         cleanedDiagram += packet.token;
         tokenCount++;
-        spinner.text = `Cleaning diagram with tip20 (${tokenCount} tokens)`;
+        if (spinner)
+          spinner.text = `Cleaning diagram with tip20 (${tokenCount} tokens)`;
       }
       if (packet.type === "fullMessage") cleanedDiagram = packet.message;
     }
 
-    spinner.succeed("Diagram cleaned with tip20");
+    if (spinner) spinner.succeed("Diagram cleaned with tip20");
   } catch (error) {
-    spinner.fail("Failed to clean diagram with tip20");
+    if (spinner) spinner.fail("Failed to clean diagram with tip20");
     console.error("Error cleaning diagram:", error);
     cleanedDiagram = diagramCode; // Use original code if cleaning fails
   }

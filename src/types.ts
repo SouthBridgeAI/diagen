@@ -29,3 +29,30 @@ export type CritiqueHistoryItem = {
   fullResponse: string;
   improvedDiagram: string;
 };
+
+export type DiagramRun = {
+  id: string;
+  config: {
+    generationModel: SupportedModel;
+    critiqueModel: string;
+    maxFixSteps: number;
+    maxCritiqueRounds: number;
+    provideFixHistory: boolean;
+    provideCritiqueHistory: boolean;
+    provideDataForCritique: boolean;
+    outputDir: string;
+  };
+  rounds: DiagramRound[];
+  totalTime: number;
+};
+
+type DiagramRound = {
+  critiqueNumber: number;
+  initialDiagramCode: string;
+  fixes: FixAttempt[];
+  finalDiagramCode: string;
+  renderedDiagramFilename: string;
+  critique?: string;
+  failureReason?: string;
+  timeTaken: number;
+};
