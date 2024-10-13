@@ -1,10 +1,10 @@
 {
-  "name": "ts-package-template",
+  "name": "diagen",
   "version": "0.0.1",
   "author": "Hrishi Olickel <twitter-@hrishioa> (https://olickel.com)",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/southbridgeai/ts-package-template.git"
+    "url": "git+https://github.com/southbridgeai/diagen.git"
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -30,7 +30,7 @@
       }
     }
   },
-  "description": "Simple template for typescript packages",
+  "description": "Create beautiful, reflective diagrams from code and data.",
   "files": [
     "dist",
     "package.json"
