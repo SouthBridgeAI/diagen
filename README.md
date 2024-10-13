@@ -1,15 +1,12 @@
-# `npx diagen`
+<h1 align="center">
+  <br>
+  <a href="https://github.com/southbridgeai/diagen"><img src="https://github.com/user-attachments/assets/22a14118-d84a-48be-905a-cf7c3294ecac" alt="Diagen" width="200"></a>
+  <br>
+  <code>npx diagen</code>
+  <br>
+</h1>
 
-<div align="center">
-
-![diagen logo](https://github.com/yourusername/diagen/assets/your-asset-id/diagen-logo.png)
-
-Generate beautiful, intelligent diagrams from your data with a single command.
-
-[![Twitter Follow](https://img.shields.io/twitter/follow/hrishioa?style=social)](https://twitter.com/hrishioa)
-[![GitHub Stars](https://img.shields.io/github/stars/southbridgeai/diagen?style=social)](https://github.com/southbridgeai/diagen)
-
-</div>
+<h3 align="center">Generate beautiful, reflective diagrams from your data with a single command.</h3>
 
 ## 🚀 Features
 
@@ -19,6 +16,11 @@ Generate beautiful, intelligent diagrams from your data with a single command.
 - 📊 Support for various diagram types (flowcharts, architecture diagrams, etc.)
 - 🛠 Easy-to-use CLI interface
 - 📝 Customizable diagram generation process
+
+## How it works (explained by Diagen)
+
+![9cf49dd0-9961-4adf-b50c-730cad480d5b](https://github.com/user-attachments/assets/4bf2cd9e-1f40-41b0-9b3f-0e6761fda244)
+
 
 ## 🏁 Run as a tool
 
