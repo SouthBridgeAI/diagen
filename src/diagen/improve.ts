@@ -4,6 +4,7 @@ import { callAIStream } from "../utils/ai-adapters";
 import { cleanDiagramWithTip20 } from "../utils/helpers";
 import { reflectionPrompt } from "./prompts";
 import path from "path";
+import { TIP20_MODEL } from "../utils/constants";
 
 export async function improveDiagramWithCritique(
   diagramCode: string,
@@ -93,17 +94,14 @@ export async function improveDiagramWithCritique(
   if (critiqueSpinner)
     critiqueSpinner.succeed("New diagram generated from critique");
 
-  const cleanedDiagram = await cleanDiagramWithTip20(
-    response,
-    "claude-3-haiku-20240307"
-  );
+  const cleanedDiagram = await cleanDiagramWithTip20(response, TIP20_MODEL);
 
   if (saveLogStep)
     saveLogStep({
       type: "critique_improvement_cleaned",
       critique: critique,
       diagram: cleanedDiagram,
-      model: "claude-3-haiku-20240307",
+      model: TIP20_MODEL,
     });
 
   return {

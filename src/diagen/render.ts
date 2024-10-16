@@ -7,6 +7,7 @@ interface RenderResult {
   err?: string;
   filename?: string;
   executionTime: number;
+  d2Command: string;
 }
 
 export async function render(
@@ -22,7 +23,7 @@ export async function render(
   }
 
   const outputPath = path.join(diagramsDir, `${diagramId}.png`);
-  const d2Command = `d2 --theme=300 -l dagre ${diagramLocation} ${outputPath}`;
+  const d2Command = `d2 --theme=300 -l dagre \"${diagramLocation}\" \"${outputPath}\"`;
 
   return new Promise<RenderResult>((resolve) => {
     const startTime = Date.now();
@@ -33,11 +34,13 @@ export async function render(
           success: false,
           err: stderr || err?.message,
           executionTime,
+          d2Command,
         };
         if (saveLogStep) {
           saveLogStep({
             type: "render_error",
             diagramId,
+            d2Command,
             diagramLocation,
             err: result.err,
             stderr,
@@ -51,6 +54,7 @@ export async function render(
           success: true,
           filename: outputPath,
           executionTime,
+          d2Command,
         };
         if (saveLogStep) {
           saveLogStep({
@@ -71,6 +75,7 @@ export async function render(
         success: false,
         err: "Render process timed out",
         executionTime: timeoutMs,
+        d2Command,
       };
       if (saveLogStep) {
         saveLogStep({

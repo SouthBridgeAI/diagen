@@ -7,10 +7,30 @@ import { ClaudeModel, GeminiModel, SupportedModel } from "./types";
 import { diagen } from "./diagen";
 import { checkModelAuthExists, isCommandAvailable } from "./utils/helpers";
 import { countTokens } from "@anthropic-ai/tokenizer";
+import { TIP20_MODEL, tip20Status } from "./utils/constants";
 
 async function runWizard() {
+  // Print the version of diagen
+  if (process.env.npm_package_version !== undefined)
+    console.log(`diagen v${process.env.npm_package_version}`);
+
   // Check for command line arguments
   const [, , sourceFile, outputDir] = process.argv;
+
+  if (!checkModelAuthExists(TIP20_MODEL, true)) {
+    const continueWithoutTip20 = await confirm({
+      message:
+        "If you don't have an Anthropic API key, tip20 (https://github.com/SouthBridgeAI/tip20) will not work. Your diagrams might still be fine, but it's a cheap easy way to ensure they are. Do you want to continue without tip20?",
+      default: true,
+    });
+
+    if (!continueWithoutTip20) {
+      console.log("Please add an anthropic api key and restart.");
+      process.exit(0);
+    } else {
+      tip20Status.disabled = true;
+    }
+  }
 
   if (!sourceFile) {
     console.log(

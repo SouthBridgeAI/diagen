@@ -16,6 +16,7 @@ export type FixAttempt = {
   errors: string;
   fixedDiagram: string;
   response: string;
+  d2Command: string;
 };
 
 export type Message = {

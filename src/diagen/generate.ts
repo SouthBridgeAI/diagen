@@ -4,6 +4,7 @@ import { callAIStream } from "../utils/ai-adapters";
 import { cleanDiagramWithTip20 } from "../utils/helpers";
 import { generationPrompt } from "./prompts";
 import path from "path";
+import { TIP20_MODEL } from "../utils/constants";
 
 export async function generateDiagram(
   data: string,
@@ -46,7 +47,7 @@ export async function generateDiagram(
   // Clean the generated diagram
   const cleanedDiagram = await cleanDiagramWithTip20(
     response,
-    "claude-3-haiku-20240307",
+    TIP20_MODEL,
     silent
   );
 

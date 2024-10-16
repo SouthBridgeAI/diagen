@@ -11,6 +11,7 @@ import fs from "fs";
 import path from "path";
 import ora from "ora";
 import { fixPrompt } from "./prompts";
+import { TIP20_MODEL } from "../utils/constants";
 
 type FixResult =
   | {
@@ -138,10 +139,7 @@ export async function checkAndFixDiagram(
 
     response = removeLineTag(response);
 
-    const cleanedDiagram = await cleanDiagramWithTip20(
-      response,
-      "claude-3-haiku-20240307"
-    );
+    const cleanedDiagram = await cleanDiagramWithTip20(response, TIP20_MODEL);
 
     latestDiagramCode = cleanedDiagram;
     const latestDiagramFilename = path.join(tempDir, `${fixDiagramId}.d2`);
@@ -179,6 +177,7 @@ export async function checkAndFixDiagram(
       errors: renderResult.err!,
       fixedDiagram: cleanedDiagram,
       response: response,
+      d2Command: renderResult.d2Command,
     };
 
     fixHistory.push(fixAttempt);

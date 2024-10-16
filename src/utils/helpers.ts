@@ -9,6 +9,7 @@ import {
 import ora from "ora";
 import { tip20streaming } from "tip20";
 import { exec } from "child_process";
+import { tip20Status } from "./constants";
 
 export function lineTag(input: string): string {
   // Split the input string into an array of lines
@@ -67,23 +68,29 @@ export function isCommandAvailable(command: string): Promise<boolean> {
   });
 }
 
-export const checkModelAuthExists = (model: SupportedModel) => {
+export const checkModelAuthExists = (
+  model: SupportedModel,
+  silent: boolean = false
+) => {
   if (isClaudeModel(model) && !process.env.ANTHROPIC_API_KEY) {
-    console.error(
-      `ANTHROPIC_API_KEY is not set in the environment variables. Please set it (export ANTHROPIC_API_KEY=...) to use ${model}.`
-    );
+    if (!silent)
+      console.error(
+        `ANTHROPIC_API_KEY is not set in the environment variables. Please set it (export ANTHROPIC_API_KEY=...) to use ${model}.`
+      );
 
     return false;
   } else if (isGeminiModel(model) && !process.env.GEMINI_API_KEY) {
-    console.error(
-      `GEMINI_API_KEY is not set in the environment variables. Please set it (export GEMINI_API_KEY=...) to use ${model}.`
-    );
+    if (!silent)
+      console.error(
+        `GEMINI_API_KEY is not set in the environment variables. Please set it (export GEMINI_API_KEY=...) to use ${model}.`
+      );
 
     return false;
   } else if (isOpenAIModel(model) && !process.env.OPENAI_API_KEY) {
-    console.error(
-      `OPENAI_API_KEY is not set in the environment variables. Please set it (export OPENAI_API_KEY=...) to use ${model}.`
-    );
+    if (!silent)
+      console.error(
+        `OPENAI_API_KEY is not set in the environment variables. Please set it (export OPENAI_API_KEY=...) to use ${model}.`
+      );
 
     return false;
   }
@@ -96,6 +103,24 @@ export async function cleanDiagramWithTip20(
   modelName: string,
   silent: boolean = true
 ): Promise<string> {
+  if (tip20Status.disabled) {
+    console.log("Attempting to clean diagram without tip20");
+
+    const matchedDiagram = diagramCode.match(/```d2\n([\s\S]*?)\n```/g);
+    if (matchedDiagram) {
+      const cleanedDiagram = matchedDiagram[0]
+        .replace(/```d2/g, "")
+        .replace(/```/g, "")
+        .trim();
+
+      return cleanedDiagram;
+    } else {
+      throw new Error(
+        "Could not clean diagram without tip20. Consider adding an Anthropic API key or running again!"
+      );
+    }
+  }
+
   const spinner = silent ? null : ora("Cleaning diagram with tip20").start();
   let cleanedDiagram = "",
     tokenCount = 0;
